@@ -1,103 +1,162 @@
-import Image from "next/image";
+"use client"
 
-export default function Home() {
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Bell, FileText, Calendar, ImageIcon, TrendingUp } from "lucide-react"
+import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts"
+import { useState, useEffect } from "react"
+
+const data = [
+  { name: "Jan", total: 12 },
+  { name: "Feb", total: 18 },
+  { name: "Mar", total: 25 },
+  { name: "Apr", total: 32 },
+  { name: "May", total: 45 },
+  { name: "Jun", total: 60 },
+]
+
+export default function DashboardPage() {
+  const [statsData, setStatsData] = useState({
+    notices: 0,
+    posts: 0,
+    events: 0,
+    gallery: 0,
+  })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        const res = await fetch("/api/stats")
+        if (res.ok) {
+          const data = await res.json()
+          setStatsData(data)
+        }
+      } catch (error) {
+        console.error("[v0] Error fetching stats:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchStats()
+  }, [])
+
+  const stats = [
+    {
+      name: "Active Notices",
+      value: statsData.notices.toString(),
+      icon: Bell,
+      color: "text-blue-500",
+      change: "+2 this week",
+    },
+    {
+      name: "Blog Posts",
+      value: statsData.posts.toString(),
+      icon: FileText,
+      color: "text-green-500",
+      change: "+5 this month",
+    },
+    {
+      name: "Upcoming Events",
+      value: statsData.events.toString(),
+      icon: Calendar,
+      color: "text-orange-500",
+      change: "2 tomorrow",
+    },
+    {
+      name: "Gallery Photos",
+      value: statsData.gallery.toString(),
+      icon: ImageIcon,
+      color: "text-purple-500",
+      change: "+12 new",
+    },
+  ]
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Dashboard Overview</h1>
+        <p className="text-muted-foreground">Comprehensive overview of your school's digital presence.</p>
+      </div>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {stats.map((stat) => (
+          <Card key={stat.name}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">{stat.name}</CardTitle>
+              <stat.icon className={`h-4 w-4 ${stat.color}`} />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stat.value}</div>
+              <p className="text-xs text-muted-foreground">{stat.change}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+        <Card className="col-span-4">
+          <CardHeader>
+            <CardTitle>Content Growth</CardTitle>
+            <CardDescription>Visualizing post and notice volume over the last 6 months.</CardDescription>
+          </CardHeader>
+          <CardContent className="pl-2">
+            <div className="h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data}>
+                  <XAxis dataKey="name" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis
+                    stroke="#888888"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(value) => `${value}`}
+                  />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: "hsl(var(--background))", borderRadius: "8px" }}
+                    itemStyle={{ color: "hsl(var(--primary))" }}
+                  />
+                  <Bar dataKey="total" fill="currentColor" radius={[4, 4, 0, 0]} className="fill-primary" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="col-span-3">
+          <CardHeader>
+            <CardTitle>Quick Insights</CardTitle>
+            <CardDescription>Key trends detected in your recent activity.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex items-center gap-4">
+              <div className="rounded-full bg-blue-100 p-2 dark:bg-blue-900">
+                <TrendingUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium leading-none">User Engagement Up</p>
+                <p className="text-xs text-muted-foreground">Post views increased by 15% this week.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="rounded-full bg-green-100 p-2 dark:bg-green-900">
+                <FileText className="h-4 w-4 text-green-600 dark:text-green-400" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium leading-none">Drafts Pending</p>
+                <p className="text-xs text-muted-foreground">You have 3 blog posts awaiting review.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="rounded-full bg-orange-100 p-2 dark:bg-orange-900">
+                <Calendar className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium leading-none">Major Event Approaching</p>
+                <p className="text-xs text-muted-foreground">"Annual Sports Day" is in 10 days.</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
-  );
+  )
 }
