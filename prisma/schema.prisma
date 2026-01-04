@@ -8,11 +8,11 @@ datasource db {
 }
 
 model Notice {
-  id          Int      @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   title       String
-  description String
   date        DateTime
   category    String
+  description String
   mediaType   String?
   mediaUrl    String?
   accent      String?
@@ -20,43 +20,52 @@ model Notice {
   updatedAt   DateTime? @updatedAt
 }
 
-
 model Post {
-  id          Int      @id @default(autoincrement())
-  title       String
-  excerpt     String?
-  author      String
-  date        DateTime @default(now())
-  readTime    String?
-  category    String?
-  image       String?
-  accent      String   @default("bg-blue-600")
-  featured    Boolean  @default(false)
-  trending    Boolean  @default(false)
-  content     String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  title     String
+  excerpt   String?
+  author    String
+  date      DateTime @default(now())
+  readTime  String?
+  category  String?
+  image     String?
+  createdAt DateTime @default(now())
+  accent    String   @default("bg-blue-600")
+  featured  Boolean  @default(false)
+  trending  Boolean  @default(false)
+  content   String?
+  updatedAt DateTime @updatedAt
 }
 
 model Event {
   id          Int      @id @default(autoincrement())
   title       String
-  description String
   date        DateTime
-  location    String
   category    String?
-  image       String?
+  description String
+  location    String
   accent      String   @default("bg-blue-600")
   createdAt   DateTime @default(now())
+  image       String?
   updatedAt   DateTime @updatedAt
 }
 
 model GalleryItem {
   id          Int      @id @default(autoincrement())
   title       String
-  imageUrl    String
-  description String?
   category    String?
+  createdAt   DateTime @default(now())
+  description String?
+  imageUrl    String
+  updatedAt   DateTime @updatedAt
+}
+
+model User {
+  id          Int      @id @default(autoincrement())
+  username    String   @unique
+  password    String
+  collegeCode String
+  role        String   @default("admin")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

@@ -5,6 +5,7 @@ import { DataTable } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+// <CHANGE> Added dialog components for Add/Edit functionality
 import {
   Dialog,
   DialogContent,
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import dynamic from "next/dynamic"
 
 // Dynamically import ReactQuill to avoid SSR issues
@@ -29,17 +31,11 @@ type Post = {
   category?: string
 }
 
-const PREDEFINED_CATEGORIES = ["News", "Events", "Academic", "Student Life", "Sports"]
-
 export default function PostsPage() {
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingPost, setEditingPost] = useState<Post | null>(null)
-  
-  // New state to handle the dropdown UI separately from the data value
-  const [categorySelect, setCategorySelect] = useState("")
-
   const [formData, setFormData] = useState({
     title: "",
     excerpt: "",
@@ -59,13 +55,17 @@ export default function PostsPage() {
     try {
       console.log("[v0] Fetching posts from /api/posts")
       const response = await fetch("/api/posts")
-      
+      console.log("[v0] Response status:", response.status)
+
       if (!response.ok) {
         const errorData = await response.json()
+        console.error("[v0] Error response:", errorData)
         throw new Error(errorData.details || "Failed to fetch posts")
       }
 
       const data = await response.json()
+      console.log("[v0] Fetched posts:", data)
+
       setPosts(
         data.map((post: any) => ({
           id: post.id,
@@ -88,25 +88,15 @@ export default function PostsPage() {
     }
   }
 
-  const resetForm = () => {
-    setFormData({
-      title: "",
-      excerpt: "",
-      author: "",
-      date: new Date().toISOString().split("T")[0],
-      category: "",
-      content: "",
-      image: "",
-    })
-    setCategorySelect("")
-  }
-
+  // <CHANGE> Implemented handleSubmit for creating/updating posts
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     try {
       const url = editingPost ? `/api/posts/${editingPost.id}` : "/api/posts"
       const method = editingPost ? "PUT" : "POST"
+
+      console.log(`[v0] ${method} ${url}`, formData)
 
       const response = await fetch(url, {
         method,
@@ -126,7 +116,15 @@ export default function PostsPage() {
 
       setDialogOpen(false)
       setEditingPost(null)
-      resetForm()
+      setFormData({
+        title: "",
+        excerpt: "",
+        author: "",
+        date: new Date().toISOString().split("T")[0],
+        category: "",
+        content: "",
+        image: "",
+      })
       fetchPosts()
     } catch (error) {
       console.error("[v0] Failed to submit post:", error)
@@ -140,6 +138,7 @@ export default function PostsPage() {
 
   const handleDelete = async (item: Post) => {
     try {
+      console.log("[v0] Deleting post:", item.id)
       const response = await fetch(`/api/posts/${item.id}`, {
         method: "DELETE",
       })
@@ -164,7 +163,9 @@ export default function PostsPage() {
     }
   }
 
+  // <CHANGE> Implemented handleEdit to populate form with existing data
   const handleEdit = async (item: Post) => {
+    console.log("[v0] Editing post:", item)
     try {
       const response = await fetch(`/api/posts/${item.id}`)
       if (!response.ok) {
@@ -172,18 +173,12 @@ export default function PostsPage() {
       }
       const post = await response.json()
       setEditingPost(item)
-      
-      // Determine if category is preset or custom
-      const currentCategory = post.category || ""
-      const isPreset = PREDEFINED_CATEGORIES.includes(currentCategory)
-      setCategorySelect(isPreset ? currentCategory : "Custom")
-
       setFormData({
         title: post.title,
         excerpt: post.excerpt || "",
         author: post.author,
         date: new Date(post.date).toISOString().split("T")[0],
-        category: currentCategory,
+        category: post.category || "",
         content: post.content || "",
         image: post.image || "",
       })
@@ -201,7 +196,6 @@ export default function PostsPage() {
   const columns = [
     { header: "Title", accessor: "title" },
     { header: "Author", accessor: "author" },
-    { header: "Category", accessor: "category" },
     { header: "Published Date", accessor: "date" },
   ]
 
@@ -220,20 +214,25 @@ export default function PostsPage() {
           <h1 className="text-3xl font-bold tracking-tight">Blog Posts</h1>
           <p className="text-muted-foreground">Manage your articles and blog content.</p>
         </div>
+        {/* <CHANGE> Connected New Post button to dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={() => {
               setEditingPost(null)
-              resetForm()
+              setFormData({
+                title: "",
+                excerpt: "",
+                author: "",
+                date: new Date().toISOString().split("T")[0],
+                category: "",
+                content: "",
+                image: "",
+              })
             }}>
               <Plus className="mr-2 h-4 w-4" /> New Post
             </Button>
           </DialogTrigger>
-          {/* FIX 1: Prevent closing on outside click */}
-          <DialogContent 
-            className="sm:max-w-[625px]"
-            onInteractOutside={(e) => e.preventDefault()}
-          >
+          <DialogContent className="sm:max-w-[625px]">
             <DialogHeader>
               <DialogTitle>{editingPost ? "Edit Post" : "Create New Post"}</DialogTitle>
               <DialogDescription>
@@ -250,7 +249,6 @@ export default function PostsPage() {
                   required
                 />
               </div>
-              
               <div className="space-y-2">
                 <Label htmlFor="excerpt">Excerpt</Label>
                 <ReactQuill
@@ -270,7 +268,6 @@ export default function PostsPage() {
                   }}
                 />
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="author">Author</Label>
@@ -292,46 +289,15 @@ export default function PostsPage() {
                   />
                 </div>
               </div>
-
-              {/* FIX 2: Fixed Category Selection Logic */}
               <div className="space-y-2">
                 <Label htmlFor="category">Category</Label>
-                <select
+                <Input
                   id="category"
-                  value={categorySelect}
-                  onChange={(e) => {
-                    const value = e.target.value
-                    setCategorySelect(value)
-                    setFormData({ 
-                      ...formData, 
-                      category: value === "Custom" ? "" : value 
-                    })
-                  }}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  required={categorySelect !== "Custom"}
-                >
-                  <option value="">Select a category</option>
-                  {PREDEFINED_CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                  <option value="Custom">Custom</option>
-                </select>
-
-                {categorySelect === "Custom" && (
-                  <div className="space-y-2 pt-2">
-                    <Label htmlFor="customCategory">Custom Category Name</Label>
-                    <Input
-                      id="customCategory"
-                      value={formData.category}
-                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                      placeholder="Enter custom category"
-                      required
-                      autoFocus
-                    />
-                  </div>
-                )}
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  placeholder="e.g., Technology, Education, News"
+                />
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="image">Image URL</Label>
                 <Input

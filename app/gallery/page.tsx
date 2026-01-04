@@ -34,6 +34,8 @@ type GalleryItem = {
   description?: string
 }
 
+const PREDEFINED_CATEGORIES = ["Campus", "Events", "Sports", "Facilities", "Students", "Ceremony"]
+
 // Helper to handle image URLs
 const getImageUrl = (url: string) => {
   if (!url) return ""
@@ -48,6 +50,9 @@ export default function GalleryPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<GalleryItem | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  
+  // New state to handle the dropdown UI separately from the data value
+  const [categorySelect, setCategorySelect] = useState("")
   
   const [formData, setFormData] = useState({
     title: "",
@@ -156,14 +161,21 @@ export default function GalleryPage() {
   const resetForm = () => {
     setEditingItem(null)
     setFormData({ title: "", imageUrl: "", category: "", description: "" })
+    setCategorySelect("")
   }
 
   const openEdit = (item: GalleryItem) => {
     setEditingItem(item)
+    
+    // Determine if category is preset or custom
+    const currentCategory = item.category || ""
+    const isPreset = PREDEFINED_CATEGORIES.includes(currentCategory)
+    setCategorySelect(isPreset ? currentCategory : "Custom")
+
     setFormData({
       title: item.title,
       imageUrl: item.imageUrl,
-      category: item.category || "",
+      category: currentCategory,
       description: item.description || "",
     })
     setDialogOpen(true)
@@ -186,7 +198,11 @@ export default function GalleryPage() {
               <Plus className="mr-2 h-4 w-4" /> Add Media
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          {/* FIX 1: Prevent closing on outside click */}
+          <DialogContent 
+            className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto"
+            onInteractOutside={(e) => e.preventDefault()}
+          >
             <DialogHeader>
               <DialogTitle>{editingItem ? "Edit Media" : "Add New Media"}</DialogTitle>
               <DialogDescription>
@@ -241,14 +257,43 @@ export default function GalleryPage() {
                     placeholder="Event Name"
                   />
                 </div>
+
+                {/* FIX 2: Fixed Category Selection Logic */}
                 <div className="space-y-2 md:col-span-1">
                   <Label htmlFor="category">Category</Label>
-                  <Input
+                  <select
                     id="category"
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    placeholder="e.g., Sports, Campus"
-                  />
+                    value={categorySelect}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setCategorySelect(value)
+                      setFormData({ 
+                        ...formData, 
+                        category: value === "Custom" ? "" : value 
+                      })
+                    }}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    required={categorySelect !== "Custom"}
+                  >
+                    <option value="">Select a category</option>
+                    {PREDEFINED_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                    <option value="Custom">Custom</option>
+                  </select>
+
+                  {categorySelect === "Custom" && (
+                    <div className="pt-2">
+                      <Input
+                        id="customCategory"
+                        value={formData.category}
+                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                        placeholder="Enter custom category"
+                        required
+                        autoFocus
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
               
@@ -319,7 +364,6 @@ export default function GalleryPage() {
                 
                 {image.category && (
                   <div className="absolute top-2 left-2 z-10">
-                    {/* Manual Badge Implementation */}
                     <span className="inline-flex items-center rounded-md bg-white/90 px-2.5 py-0.5 text-xs font-semibold text-gray-900 shadow-sm backdrop-blur-sm">
                       {image.category}
                     </span>

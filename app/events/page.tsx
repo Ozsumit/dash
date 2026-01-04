@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import { DataTable } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
@@ -17,7 +16,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import dynamic from "next/dynamic"
 
 // Dynamically import ReactQuill to avoid SSR issues
@@ -32,11 +30,17 @@ type Event = {
   category?: string
 }
 
+const PREDEFINED_CATEGORIES = ["Academic", "Sports", "Cultural", "Meeting", "Holiday", "Workshop"]
+
 export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingEvent, setEditingEvent] = useState<Event | null>(null)
+  
+  // New state to handle the dropdown UI separately from the data value
+  const [categorySelect, setCategorySelect] = useState("")
+
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -60,7 +64,6 @@ export default function EventsPage() {
         throw new Error(errorData.details || "Failed to fetch events")
       }
       const data = await response.json()
-      console.log("[v0] Fetched events:", data)
       setEvents(
         data.map((event: any) => ({
           id: event.id,
@@ -81,6 +84,18 @@ export default function EventsPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      title: "",
+      description: "",
+      date: new Date().toISOString().split("T")[0],
+      location: "",
+      category: "",
+      image: "",
+    })
+    setCategorySelect("")
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -109,6 +124,7 @@ export default function EventsPage() {
 
       setDialogOpen(false)
       setEditingEvent(null)
+      resetForm()
       fetchEvents()
     } catch (error) {
       console.error("[v0] Submission error:", error)
@@ -122,12 +138,18 @@ export default function EventsPage() {
 
   const handleEdit = (item: Event) => {
     setEditingEvent(item)
+    
+    // Determine if category is preset or custom
+    const currentCategory = item.category || ""
+    const isPreset = PREDEFINED_CATEGORIES.includes(currentCategory)
+    setCategorySelect(isPreset ? currentCategory : "Custom")
+
     setFormData({
       title: item.title,
       description: item.description || "",
       date: new Date(item.date).toISOString().split("T")[0],
       location: item.location,
-      category: item.category || "",
+      category: currentCategory,
       image: (item as any).image || "",
     })
     setDialogOpen(true)
@@ -162,6 +184,7 @@ export default function EventsPage() {
     { header: "Event Name", accessor: "title" },
     { header: "Date", accessor: "date" },
     { header: "Location", accessor: "location" },
+    { header: "Category", accessor: "category" },
   ]
 
   if (loading) {
@@ -184,20 +207,17 @@ export default function EventsPage() {
             <Button
               onClick={() => {
                 setEditingEvent(null)
-                setFormData({
-                  title: "",
-                  description: "",
-                  date: new Date().toISOString().split("T")[0],
-                  location: "",
-                  category: "",
-                  image: "",
-                })
+                resetForm()
               }}
             >
               <Plus className="mr-2 h-4 w-4" /> Add Event
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[525px]">
+          {/* FIX 1: Prevent closing on outside click */}
+          <DialogContent 
+            className="sm:max-w-[525px]"
+            onInteractOutside={(e) => e.preventDefault()}
+          >
             <DialogHeader>
               <DialogTitle>{editingEvent ? "Edit Event" : "Add New Event"}</DialogTitle>
               <DialogDescription>Enter the event details below. All fields are required.</DialogDescription>
@@ -242,14 +262,43 @@ export default function EventsPage() {
                     required
                   />
                 </div>
+                {/* FIX 2: Fixed Category Selection Logic */}
                 <div className="space-y-2">
                   <Label htmlFor="category">Category</Label>
-                  <Input
+                  <select
                     id="category"
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    placeholder="e.g., Sports, Arts"
-                  />
+                    value={categorySelect}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setCategorySelect(value)
+                      setFormData({ 
+                        ...formData, 
+                        category: value === "Custom" ? "" : value 
+                      })
+                    }}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    required={categorySelect !== "Custom"}
+                  >
+                    <option value="">Select a category</option>
+                    {PREDEFINED_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                    <option value="Custom">Custom</option>
+                  </select>
+
+                  {categorySelect === "Custom" && (
+                    <div className="space-y-2 pt-2">
+                      <Label htmlFor="customCategory">Custom Category Name</Label>
+                      <Input
+                        id="customCategory"
+                        value={formData.category}
+                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                        placeholder="Enter custom category"
+                        required
+                        autoFocus
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="space-y-2">
