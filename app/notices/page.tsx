@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { DataTable } from "@/components/data-table"
-import { Button } from "@/components/ui/button"
-import { Plus } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
+import { useState, useEffect } from "react";
+import { DataTable } from "@/components/data-table";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 // <CHANGE> Added dialog components for Add/Edit functionality
 import {
   Dialog,
@@ -13,51 +13,51 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+// /c/
 type Notice = {
-  id: number
-  title: string
-  date: string
-  category: string
-  description?: string
-}
+  id: number;
+  title: string;
+  date: string;
+  category: string;
+  description?: string;
+};
 
 export default function NoticesPage() {
-  const [notices, setNotices] = useState<Notice[]>([])
-  const [loading, setLoading] = useState(true)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingNotice, setEditingNotice] = useState<Notice | null>(null)
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingNotice, setEditingNotice] = useState<Notice | null>(null);
   const [formData, setFormData] = useState({
     title: "",
     description: "",
     date: new Date().toISOString().split("T")[0],
     category: "",
-  })
-  const { toast } = useToast()
+  });
+  const { toast } = useToast();
 
   useEffect(() => {
-    fetchNotices()
-  }, [])
+    fetchNotices();
+  }, []);
 
   const fetchNotices = async () => {
     try {
-      console.log("[v0] Fetching notices from /api/notices")
-      const response = await fetch("/api/notices")
-      console.log("[v0] Response status:", response.status)
-      
+      console.log("[v0] Fetching notices from /api/notices");
+      const response = await fetch("/api/notices");
+      console.log("[v0] Response status:", response.status);
+
       if (!response.ok) {
-        const errorData = await response.json()
-        console.error("[v0] Error response:", errorData)
-        throw new Error(errorData.details || "Failed to fetch notices")
+        const errorData = await response.json();
+        console.error("[v0] Error response:", errorData);
+        throw new Error(errorData.details || "Failed to fetch notices");
       }
-      
-      const data = await response.json()
-      console.log("[v0] Fetched notices:", data)
-      
+
+      const data = await response.json();
+      console.log("[v0] Fetched notices:", data);
+
       setNotices(
         data.map((notice: any) => ({
           id: notice.id,
@@ -65,117 +65,127 @@ export default function NoticesPage() {
           date: new Date(notice.date).toLocaleDateString(),
           category: notice.category,
           description: notice.description,
-        })),
-      )
+        }))
+      );
     } catch (error) {
-      console.error("[v0] Failed to fetch notices:", error)
+      console.error("[v0] Failed to fetch notices:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to load notices",
+        description:
+          error instanceof Error ? error.message : "Failed to load notices",
         variant: "destructive",
-      })
+      });
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   // <CHANGE> Implemented handleSubmit for creating/updating notices
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
+    e.preventDefault();
+
     try {
-      const url = editingNotice ? `/api/notices/${editingNotice.id}` : "/api/notices"
-      const method = editingNotice ? "PUT" : "POST"
-      
-      console.log(`[v0] ${method} ${url}`, formData)
-      
+      const url = editingNotice
+        ? `/api/notices/${editingNotice.id}`
+        : "/api/notices";
+      const method = editingNotice ? "PUT" : "POST";
+
+      console.log(`[v0] ${method} ${url}`, formData);
+
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
-      })
-      
+      });
+
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.details || `Failed to ${editingNotice ? "update" : "create"} notice`)
+        const errorData = await response.json();
+        throw new Error(
+          errorData.details ||
+            `Failed to ${editingNotice ? "update" : "create"} notice`
+        );
       }
 
       toast({
         title: "Success",
-        description: `Notice ${editingNotice ? "updated" : "created"} successfully`,
-      })
-      
-      setDialogOpen(false)
-      setEditingNotice(null)
+        description: `Notice ${
+          editingNotice ? "updated" : "created"
+        } successfully`,
+      });
+
+      setDialogOpen(false);
+      setEditingNotice(null);
       setFormData({
         title: "",
         description: "",
         date: new Date().toISOString().split("T")[0],
         category: "",
-      })
-      fetchNotices()
+      });
+      fetchNotices();
     } catch (error) {
-      console.error("[v0] Failed to submit notice:", error)
+      console.error("[v0] Failed to submit notice:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to submit notice",
+        description:
+          error instanceof Error ? error.message : "Failed to submit notice",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const handleDelete = async (item: Notice) => {
     try {
-      console.log("[v0] Deleting notice:", item.id)
+      console.log("[v0] Deleting notice:", item.id);
       const response = await fetch(`/api/notices/${item.id}`, {
         method: "DELETE",
-      })
-      
+      });
+
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.details || "Failed to delete notice")
+        const errorData = await response.json();
+        throw new Error(errorData.details || "Failed to delete notice");
       }
 
       toast({
         title: "Success",
         description: "Notice deleted successfully",
-      })
-      fetchNotices()
+      });
+      fetchNotices();
     } catch (error) {
-      console.error("[v0] Failed to delete notice:", error)
+      console.error("[v0] Failed to delete notice:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete notice",
+        description:
+          error instanceof Error ? error.message : "Failed to delete notice",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   // <CHANGE> Implemented handleEdit to populate form with existing data
   const handleEdit = (item: Notice) => {
-    console.log("[v0] Editing notice:", item)
-    setEditingNotice(item)
+    console.log("[v0] Editing notice:", item);
+    setEditingNotice(item);
     setFormData({
       title: item.title,
       description: item.description || "",
       date: new Date(item.date).toISOString().split("T")[0],
       category: item.category,
-    })
-    setDialogOpen(true)
-  }
+    });
+    setDialogOpen(true);
+  };
 
   const columns = [
     { header: "Title", accessor: "title" },
     { header: "Date", accessor: "date" },
     { header: "Category", accessor: "category" },
-  ]
+  ];
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
         <p className="text-muted-foreground">Loading notices...</p>
       </div>
-    )
+    );
   }
 
   return (
@@ -183,28 +193,36 @@ export default function NoticesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Notices</h1>
-          <p className="text-muted-foreground">Manage school-wide announcements and notices.</p>
+          <p className="text-muted-foreground">
+            Manage school-wide announcements and notices.
+          </p>
         </div>
         {/* <CHANGE> Connected Add Notice button to dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => {
-              setEditingNotice(null)
-              setFormData({
-                title: "",
-                description: "",
-                date: new Date().toISOString().split("T")[0],
-                category: "",
-              })
-            }}>
+            <Button
+              onClick={() => {
+                setEditingNotice(null);
+                setFormData({
+                  title: "",
+                  description: "",
+                  date: new Date().toISOString().split("T")[0],
+                  category: "",
+                });
+              }}
+            >
               <Plus className="mr-2 h-4 w-4" /> Add Notice
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[525px]">
             <DialogHeader>
-              <DialogTitle>{editingNotice ? "Edit Notice" : "Add New Notice"}</DialogTitle>
+              <DialogTitle>
+                {editingNotice ? "Edit Notice" : "Add New Notice"}
+              </DialogTitle>
               <DialogDescription>
-                {editingNotice ? "Update the notice details below." : "Fill in the details to create a new notice."}
+                {editingNotice
+                  ? "Update the notice details below."
+                  : "Fill in the details to create a new notice."}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -213,7 +231,9 @@ export default function NoticesPage() {
                 <Input
                   id="title"
                   value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, title: e.target.value })
+                  }
                   required
                 />
               </div>
@@ -222,7 +242,9 @@ export default function NoticesPage() {
                 <Textarea
                   id="description"
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
                   required
                   rows={4}
                 />
@@ -233,7 +255,9 @@ export default function NoticesPage() {
                   id="date"
                   type="date"
                   value={formData.date}
-                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, date: e.target.value })
+                  }
                   required
                 />
               </div>
@@ -242,13 +266,19 @@ export default function NoticesPage() {
                 <Input
                   id="category"
                   value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, category: e.target.value })
+                  }
                   placeholder="e.g., Academic, Event, General"
                   required
                 />
               </div>
               <div className="flex justify-end gap-3">
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setDialogOpen(false)}
+                >
                   Cancel
                 </Button>
                 <Button type="submit">
@@ -267,5 +297,5 @@ export default function NoticesPage() {
         onDelete={handleDelete}
       />
     </div>
-  )
+  );
 }
