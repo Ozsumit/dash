@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams, useRouter } from "next/navigation"; // 1. Import navigation hooks
 import { DataTable } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
@@ -34,6 +35,11 @@ export default function NoticesPage() {
   const [noticeToDelete, setNoticeToDelete] = useState<Notice | null>(null);
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
+
+  // 2. Initialize navigation hooks
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -46,6 +52,29 @@ export default function NoticesPage() {
   useEffect(() => {
     fetchNotices();
   }, []);
+
+  // 3. New Effect: Check for ?create param on mount
+  useEffect(() => {
+    if (searchParams.has("create")) {
+      setEditingNotice(null);
+      setFormData({
+        title: "",
+        description: "",
+        date: new Date().toISOString().split("T")[0],
+        category: "",
+      });
+      setDialogOpen(true);
+    }
+  }, [searchParams]);
+
+  // 4. Update Dialog change handler to manage URL
+  const handleOpenChange = (open: boolean) => {
+    setDialogOpen(open);
+    if (!open && searchParams.has("create")) {
+      // Remove ?create param when dialog is closed manually
+      router.replace(window.location.pathname, { scroll: false });
+    }
+  };
 
   const fetchNotices = async () => {
     try {
@@ -97,6 +126,12 @@ export default function NoticesPage() {
       });
 
       setDialogOpen(false);
+
+      // Clear URL param on success
+      if (searchParams.has("create")) {
+        router.replace(window.location.pathname, { scroll: false });
+      }
+
       setEditingNotice(null);
       setFormData({
         title: "",
@@ -178,7 +213,9 @@ export default function NoticesPage() {
             Manage school-wide announcements and notices.
           </p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+
+        {/* 5. Update Dialog to use handleOpenChange */}
+        <Dialog open={dialogOpen} onOpenChange={handleOpenChange}>
           <DialogTrigger asChild>
             <Button
               onClick={() => {
@@ -272,7 +309,7 @@ export default function NoticesPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setDialogOpen(false)}
+                  onClick={() => handleOpenChange(false)}
                 >
                   Cancel
                 </Button>

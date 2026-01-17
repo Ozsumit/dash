@@ -90,7 +90,7 @@ export default function SportsAdminPage() {
       toast({
         title: "Error",
         description: "Failed to delete registration",
-        variant: "destructive",
+        // variant: "destructive",
       });
     }
   };

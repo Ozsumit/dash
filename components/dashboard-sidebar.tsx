@@ -4,6 +4,7 @@ import {
   Bell,
   FileText,
   Volleyball,
+  BellRing,
   Calendar,
   ImageIcon,
   Settings,
@@ -16,6 +17,7 @@ const navItems = [
   { name: "Events", href: "/events", icon: Calendar },
   { name: "Gallery", href: "/gallery", icon: ImageIcon },
   { name: "Sports ", href: "/sports-registrations", icon: Volleyball },
+  { name: "Popups", href: "/popup", icon: BellRing },
 ];
 
 export function DashboardSidebar() {

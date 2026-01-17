@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useSearchParams, useRouter } from "next/navigation"; // 1. Import navigation hooks
 import {
   Plus,
   Pencil,
@@ -9,7 +10,6 @@ import {
   Loader2,
   ExternalLink,
   CheckCircle2,
-  AlertCircle,
   Image as ImageIcon,
 } from "lucide-react";
 
@@ -30,6 +30,10 @@ export default function AdminPopupsPage() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // 2. Initialize navigation hooks
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
   // Form State
   const [formData, setFormData] = useState({
@@ -66,6 +70,13 @@ export default function AdminPopupsPage() {
     fetchPopups();
   }, []);
 
+  // 3. New Effect: Check for ?create param on mount
+  useEffect(() => {
+    if (searchParams.has("create")) {
+      handleOpenCreate();
+    }
+  }, [searchParams]);
+
   // Handlers
   const handleOpenCreate = () => {
     setEditingId(null);
@@ -78,6 +89,15 @@ export default function AdminPopupsPage() {
       isActive: false,
     });
     setIsModalOpen(true);
+  };
+
+  // 4. Update Modal close handler to manage URL
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    if (searchParams.has("create")) {
+      // Remove ?create param when dialog is closed manually
+      router.replace(window.location.pathname, { scroll: false });
+    }
   };
 
   const handleEdit = (popup: Popup) => {
@@ -121,6 +141,10 @@ export default function AdminPopupsPage() {
 
       if (res.ok) {
         setIsModalOpen(false);
+        // Clear URL param on success
+        if (searchParams.has("create")) {
+          router.replace(window.location.pathname, { scroll: false });
+        }
         fetchPopups();
       } else {
         alert("Something went wrong");
@@ -133,14 +157,9 @@ export default function AdminPopupsPage() {
   };
 
   const toggleActive = async (popup: Popup) => {
-    // Optimistic update
+    // Optimistic update: just toggle the clicked popup
     setPopups((prev) =>
-      prev.map(
-        (p) =>
-          p.id === popup.id
-            ? { ...p, isActive: !p.isActive }
-            : { ...p, isActive: false } // Deactivate others if activating this one
-      )
+      prev.map((p) => (p.id === popup.id ? { ...p, isActive: !p.isActive } : p))
     );
 
     try {
@@ -265,8 +284,9 @@ export default function AdminPopupsPage() {
               <h2 className="text-xl font-bold">
                 {editingId ? "Edit Popup" : "Create Popup"}
               </h2>
+              {/* 5. Update close button to use handleCloseModal */}
               <button
-                onClick={() => setIsModalOpen(false)}
+                onClick={handleCloseModal}
                 className="p-2 hover:bg-zinc-100 rounded-full transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -382,9 +402,10 @@ export default function AdminPopupsPage() {
               </div>
 
               <div className="flex justify-end gap-3 pt-2">
+                {/* 5. Update cancel button to use handleCloseModal */}
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={handleCloseModal}
                   className="px-6 py-4 font-bold text-zinc-500 hover:bg-zinc-100 rounded-xl transition-colors"
                 >
                   Cancel
