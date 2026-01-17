@@ -83,3 +83,15 @@ model SportsRegistration {
   createdAt         DateTime @default(now())
 }
 
+model Popup {
+  
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  imageUrl    String?  // Optional
+  buttonText  String
+  buttonLink  String
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

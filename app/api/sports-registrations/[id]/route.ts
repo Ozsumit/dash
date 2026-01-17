@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import type { NextRequest } from "next/server";
 
+// GET registration by ID
 export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await context.params;
+
   try {
     const registration = await prisma.sportsRegistration.findUnique({
-      where: { id: params.id },
+      where: { id },
     });
 
     if (!registration) {
@@ -27,13 +31,16 @@ export async function GET(
   }
 }
 
+// DELETE registration by ID
 export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await context.params;
+
   try {
     const registration = await prisma.sportsRegistration.delete({
-      where: { id: params.id },
+      where: { id },
     });
 
     return NextResponse.json(registration);
