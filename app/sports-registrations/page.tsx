@@ -98,17 +98,32 @@ export default function SportsAdminPage() {
   // --- Stats Logic (Memoized) ---
   const stats = useMemo(() => {
     const counts: Record<string, number> = {};
-    E_SPORTS_LIST.forEach((game) => (counts[game] = 0));
+
+    // initialize counts
+    E_SPORTS_LIST.forEach((game) => {
+      counts[game] = 0;
+    });
 
     let teamCount = 0;
     let soloCount = 0;
 
     data.forEach((reg) => {
-      if (reg.participationType === "Team") teamCount++;
-      else soloCount++;
+      // count participation type
+      if (reg.participationType === "Team") {
+        teamCount++;
+      } else {
+        soloCount++;
+      }
 
-      if (E_SPORTS_LIST.includes(reg.sport)) {
-        counts[reg.sport] = (counts[reg.sport] || 0) + 1;
+      // 🔥 handle multiple sports
+      if (typeof reg.sport === "string") {
+        const selectedSports = reg.sport.split(",").map((s) => s.trim()); // remove spaces
+
+        selectedSports.forEach((sport) => {
+          if (E_SPORTS_LIST.includes(sport)) {
+            counts[sport] += 1;
+          }
+        });
       }
     });
 
@@ -122,7 +137,13 @@ export default function SportsAdminPage() {
       }
     });
 
-    return { counts, winner, maxVotes, teamCount, soloCount };
+    return {
+      counts,
+      winner,
+      maxVotes,
+      teamCount,
+      soloCount,
+    };
   }, [data]);
 
   // --- Filter Logic ---
@@ -360,7 +381,7 @@ export default function SportsAdminPage() {
                       </td>
                       <td className="px-6 py-6 align-top">
                         <div className="bg-zinc-50 rounded-xl p-3 border border-zinc-100">
-                          <pre className="whitespace-pre-wrap font-mono text-[10px] text-zinc-500 leading-relaxed max-h-24 overflow-y-auto custom-scrollbar">
+                          <pre className="whitespace-pre-wrap font-bold text-[1rem] text-black leading-relaxed max-h-24 overflow-y-auto custom-scrollbar">
                             {row.message || "No notes"}
                           </pre>
                         </div>
@@ -438,7 +459,7 @@ export default function SportsAdminPage() {
                       Notes / Roster
                     </p>
                     <div className="bg-zinc-50 rounded-2xl p-4 border border-zinc-100 h-32 overflow-y-auto custom-scrollbar">
-                      <pre className="whitespace-pre-wrap font-mono text-[10px] text-zinc-500 leading-relaxed">
+                      <pre className="whitespace-pre-wrap font-bold text-[.7rem] text-black leading-relaxed">
                         {row.message || "No notes provided."}
                       </pre>
                     </div>
