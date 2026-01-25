@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { DataTable } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, Wand2 } from "lucide-react"; // Added Wand2 icon
 import { useToast } from "@/components/ui/use-toast";
 import {
   Dialog,
@@ -15,9 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-// Import Tabs components (Make sure you have installed these via shadcn)
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Checkbox } from "@/components/ui/checkbox"; // Install this too
+import { Checkbox } from "@/components/ui/checkbox";
 import dynamic from "next/dynamic";
 
 // Dynamically import ReactQuill
@@ -30,6 +29,8 @@ type Post = {
   date: string;
   excerpt?: string;
   category?: string;
+  featured?: boolean;
+  trending?: boolean;
 };
 
 export default function PostsPage() {
@@ -38,7 +39,6 @@ export default function PostsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPost, setEditingPost] = useState<Post | null>(null);
 
-  // <CHANGE> Expanded State for SEO
   const [formData, setFormData] = useState({
     // Content Fields
     title: "",
@@ -48,6 +48,9 @@ export default function PostsPage() {
     category: "",
     content: "",
     image: "",
+    // Boolean Fields
+    isFeatured: false,
+    isTrending: false,
     // SEO Fields
     seoTitle: "",
     seoDescription: "",
@@ -74,6 +77,8 @@ export default function PostsPage() {
           date: new Date(post.date).toLocaleDateString(),
           excerpt: post.excerpt,
           category: post.category,
+          featured: post.featured,
+          trending: post.trending,
         })),
       );
     } catch (error) {
@@ -85,6 +90,31 @@ export default function PostsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper to strip HTML tags from Quill content for SEO Description
+  const stripHtml = (html: string) => {
+    if (typeof window === "undefined") return html;
+    const tmp = document.createElement("DIV");
+    tmp.innerHTML = html;
+    return tmp.textContent || tmp.innerText || "";
+  };
+
+  // <CHANGE> New handler to populate SEO fields
+  const handlePopulateSeo = () => {
+    const plainExcerpt = stripHtml(formData.excerpt);
+
+    setFormData((prev) => ({
+      ...prev,
+      seoTitle: prev.title,
+      // Truncate description slightly if it's massive, or keep it full for user to edit
+      seoDescription: plainExcerpt.substring(0, 300),
+    }));
+
+    toast({
+      title: "SEO Data Populated",
+      description: "Meta tags updated from title and excerpt.",
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -150,7 +180,6 @@ export default function PostsPage() {
       const post = await response.json();
       setEditingPost(item);
 
-      // <CHANGE> Populate Form including SEO data
       setFormData({
         title: post.title,
         excerpt: post.excerpt || "",
@@ -159,7 +188,8 @@ export default function PostsPage() {
         category: post.category || "",
         content: post.content || "",
         image: post.image || "",
-        // Safe check for null SEO
+        isFeatured: post.featured || false,
+        isTrending: post.trending || false,
         seoTitle: post.seo?.metaTitle || "",
         seoDescription: post.seo?.metaDescription || "",
         noIndex: post.seo?.noIndex || false,
@@ -184,6 +214,8 @@ export default function PostsPage() {
       category: "",
       content: "",
       image: "",
+      isFeatured: false,
+      isTrending: false,
       seoTitle: "",
       seoDescription: "",
       noIndex: false,
@@ -224,7 +256,6 @@ export default function PostsPage() {
             </DialogHeader>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* <CHANGE> Added Tabs for Better UI Organization */}
               <Tabs defaultValue="content" className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="content">Content</TabsTrigger>
@@ -271,6 +302,40 @@ export default function PostsPage() {
                     </div>
                   </div>
 
+                  {/* Featured & Trending Options */}
+                  <div className="flex space-x-6 border p-3 rounded-md bg-muted/20">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="isFeatured"
+                        checked={formData.isFeatured}
+                        onCheckedChange={(checked) =>
+                          setFormData({
+                            ...formData,
+                            isFeatured: checked as boolean,
+                          })
+                        }
+                      />
+                      <Label htmlFor="isFeatured" className="cursor-pointer">
+                        Featured Post
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="isTrending"
+                        checked={formData.isTrending}
+                        onCheckedChange={(checked) =>
+                          setFormData({
+                            ...formData,
+                            isTrending: checked as boolean,
+                          })
+                        }
+                      />
+                      <Label htmlFor="isTrending" className="cursor-pointer">
+                        Trending Now
+                      </Label>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="category">Category</Label>
                     <Input
@@ -302,7 +367,7 @@ export default function PostsPage() {
                       onChange={(value) =>
                         setFormData({ ...formData, excerpt: value })
                       }
-                      className="bg-white h-24 mb-12" // mb to handle quill toolbar height
+                      className="bg-white h-24 mb-12"
                     />
                   </div>
 
@@ -322,18 +387,36 @@ export default function PostsPage() {
                 {/* --- TAB 2: SEO CONFIGURATION --- */}
                 <TabsContent value="seo" className="space-y-4 pt-4">
                   <div className="bg-muted/50 p-4 rounded-md space-y-4">
+                    {/* <CHANGE> Auto-fetch button */}
+                    <div className="flex justify-between items-center pb-2 border-b border-muted-foreground/20">
+                      <h3 className="text-sm font-semibold">
+                        Metadata Settings
+                      </h3>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handlePopulateSeo}
+                        className="text-xs h-8"
+                        disabled={!formData.title && !formData.excerpt}
+                      >
+                        <Wand2 className="w-3 h-3 mr-2" />
+                        Populate from Content
+                      </Button>
+                    </div>
+
                     <div className="space-y-2">
                       <Label htmlFor="seoTitle">Meta Title</Label>
                       <Input
                         id="seoTitle"
-                        placeholder="Custom title for Google (leave empty to use Post Title)"
+                        placeholder="Custom title for Google"
                         value={formData.seoTitle}
                         onChange={(e) =>
                           setFormData({ ...formData, seoTitle: e.target.value })
                         }
                       />
-                      <p className="text-xs text-muted-foreground">
-                        Recommended: 60 chars max
+                      <p className="text-xs text-muted-foreground text-right">
+                        {formData.seoTitle.length} chars (Rec: 60)
                       </p>
                     </div>
 
@@ -350,8 +433,8 @@ export default function PostsPage() {
                           })
                         }
                       />
-                      <p className="text-xs text-muted-foreground">
-                        Recommended: 160 chars max
+                      <p className="text-xs text-muted-foreground text-right">
+                        {formData.seoDescription.length} chars (Rec: 160)
                       </p>
                     </div>
 
@@ -366,10 +449,7 @@ export default function PostsPage() {
                           })
                         }
                       />
-                      <Label
-                        htmlFor="noIndex"
-                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                      >
+                      <Label htmlFor="noIndex">
                         No Index (Hide from Google)
                       </Label>
                     </div>

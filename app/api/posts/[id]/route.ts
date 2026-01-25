@@ -9,7 +9,7 @@ export async function GET(
     const { id } = await params;
     const post = await prisma.post.findUnique({
       where: { id: Number.parseInt(id) },
-      include: { seo: true }, // <--- NEW: Fetch SEO data for the edit form
+      include: { seo: true },
     });
     if (!post)
       return NextResponse.json({ error: "Post not found" }, { status: 404 });
@@ -34,7 +34,6 @@ export async function PUT(
     const post = await prisma.post.update({
       where: { id: Number.parseInt(id) },
       data: {
-        // 1. Basic Fields
         title: body.title,
         excerpt: body.excerpt,
         author: body.author,
@@ -43,7 +42,10 @@ export async function PUT(
         image: body.image,
         content: body.content,
 
-        // 2. SEO Fields (Using upsert to be safe)
+        // <--- CHANGE: Update Featured/Trending status
+        featured: body.isFeatured,
+        trending: body.isTrending,
+
         seo: {
           upsert: {
             create: {

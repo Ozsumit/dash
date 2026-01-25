@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db"; // Ensure this path matches your project
+import { prisma } from "@/lib/db";
 
 export async function GET() {
   try {
     const posts = await prisma.post.findMany({
       orderBy: { createdAt: "desc" },
-      include: { seo: true }, // <--- NEW: Include SEO data
+      include: { seo: true },
     });
     return NextResponse.json(posts);
   } catch (error) {
@@ -31,11 +31,14 @@ export async function POST(request: Request) {
         image: body.image,
         content: body.content,
 
-        // <--- NEW: Create SEO relation immediately
+        // <--- CHANGE: Save Featured/Trending status
+        featured: body.isFeatured || false,
+        trending: body.isTrending || false,
+
         seo: {
           create: {
-            metaTitle: body.seoTitle || body.title, // Fallback to title
-            metaDescription: body.seoDescription || body.excerpt, // Fallback to excerpt
+            metaTitle: body.seoTitle || body.title,
+            metaDescription: body.seoDescription || body.excerpt,
             noIndex: body.noIndex || false,
           },
         },
