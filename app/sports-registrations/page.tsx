@@ -6,7 +6,6 @@ import {
   User,
   Search,
   RefreshCcw,
-  Trophy,
   Trash2,
   List,
   LayoutGrid,
@@ -43,6 +42,7 @@ const E_SPORTS_LIST = [
 ];
 
 // --- HELPER: SMART PARSER ---
+// Extracts structured data from the unstructured message field
 const parseDetails = (message?: string) => {
   if (!message)
     return { faculty: "N/A", semester: "N/A", roster: [] as string[] };
@@ -68,7 +68,8 @@ const parseDetails = (message?: string) => {
     ) {
       return;
     } else {
-      const cleanName = line.replace(/^[\d-]+\.?\)?\s*/, "").trim();
+      // Clean up numbering like "1. Name" or "P1 - Name"
+      const cleanName = line.replace(/^[\d-pP]+\.?\)?\s*[-:]?\s*/, "").trim();
       if (cleanName.length > 1) roster.push(cleanName);
     }
   });
@@ -119,71 +120,114 @@ export default function SportsAdminPage() {
     }
   };
 
-  // --- EXPORT CSV ---
+  // --- IMPROVED EXPORT CSV ---
   const handleExport = () => {
-    if (filteredData.length === 0) return alert("No data");
-    const headers = ["ID,Name,Email,Phone,Sport,Type,Team,Notes,Date"];
-    const rows = filteredData.map((item) =>
-      [
-        item.id,
-        `"${item.firstName} ${item.lastName}"`,
-        item.email,
-        item.phone,
-        `"${item.sport}"`,
-        item.participationType,
-        `"${item.teamName || ""}"`,
-        `"${(item.message || "").replace(/[\n\r]+/g, " ")}"`,
-        item.createdAt,
-      ].join(","),
-    );
+    if (filteredData.length === 0) return alert("No data to export");
+
+    // 1. Define Professional Headers
+    const headers = [
+      "Registration ID",
+      "Participant Name",
+      "Email Address",
+      "Phone Number",
+      "Sport / Event",
+      "Participation Type",
+      "Team Name",
+      "Faculty", // Extracted
+      "Semester", // Extracted
+      "Roster / Notes", // Cleaned
+      "Registration Date",
+    ];
+
+    // 2. Process Rows with Formatting
+    const rows = filteredData.map((item) => {
+      // Parse the messy message field to extract clean details
+      const { faculty, semester, roster } = parseDetails(item.message);
+
+      // Format Roster/Notes:
+      // If Team, join roster with commas. If Solo, just clean up newlines.
+      let noteContent = "";
+      if (item.participationType === "Team" && roster.length > 0) {
+        noteContent = "Team Members: " + roster.join(" | ");
+      } else {
+        // Remove headers (Faculty:, Semester:) from the note text to avoid duplication
+        noteContent = (item.message || "")
+          .replace(/faculty:.*|semester:.*|academic details:|roster:/gi, "")
+          .replace(/[\n\r]+/g, " ")
+          .trim();
+      }
+      if (!noteContent) noteContent = "N/A";
+
+      // Format Date (Readable)
+      const formattedDate = new Date(item.createdAt).toLocaleString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      // Safe CSV String (Handles commas inside data by wrapping in quotes)
+      const safe = (str: string) => `"${(str || "").replace(/"/g, '""')}"`;
+
+      return [
+        safe(item.id),
+        safe(`${item.firstName} ${item.lastName}`),
+        safe(item.email),
+        safe(item.phone),
+        safe(item.sport),
+        safe(item.participationType),
+        safe(item.teamName || "N/A"),
+        safe(faculty),
+        safe(semester),
+        safe(noteContent),
+        safe(formattedDate),
+      ].join(",");
+    });
+
+    // 3. Generate File with Dynamic Name
+    const csvContent =
+      "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
+    const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
-    link.href = encodeURI(
-      "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n"),
-    );
-    link.download = `sports_data.csv`;
+    link.href = encodedUri;
+
+    // Clean filename (e.g. "Sports_PUBG_Mobile_Team_2024-01-01.csv")
+    const safeCategory = selectedCategory.replace(/ /g, "_");
+    const safeDate = new Date().toISOString().split("T")[0];
+    link.download = `Sports_${safeCategory}_${filterType}_${safeDate}.csv`;
+
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
   };
 
-  // --- ADVANCED STATS CALCULATION ---
+  // --- STATS LOGIC ---
   const stats = useMemo(() => {
     const sportCounts: Record<string, number> = {};
     const eSportsCounts: Record<string, number> = {};
-
-    // Initialize E-Sports counts to 0 so they appear even if empty
     E_SPORTS_LIST.forEach((game) => (eSportsCounts[game] = 0));
-
     let teamCount = 0;
     let soloCount = 0;
 
     data.forEach((reg) => {
-      // 1. Count Type
       if (reg.participationType === "Team") teamCount++;
       else soloCount++;
-
-      // 2. Count specific sports
       const sports = reg.sport.split(",").map((s) => s.trim());
       sports.forEach((s) => {
         if (!s) return;
-
-        // General Count
         sportCounts[s] = (sportCounts[s] || 0) + 1;
-
-        // E-Sports Count (Flexible matching)
         const matchedESport = E_SPORTS_LIST.find((e) =>
           s.toLowerCase().includes(e.toLowerCase()),
         );
-        if (matchedESport) {
-          eSportsCounts[matchedESport] += 1;
-        }
+        if (matchedESport) eSportsCounts[matchedESport] += 1;
       });
     });
 
-    // Sort General Sports by popularity
     const sortedSports = Object.entries(sportCounts)
       .sort(([, a], [, b]) => b - a)
       .map(([name, count]) => ({ name, count }));
 
-    // Calculate E-Sports Winner
     let maxVotes = 0;
     let winner = "None";
     Object.entries(eSportsCounts).forEach(([game, count]) => {
@@ -217,12 +261,10 @@ export default function SportsAdminPage() {
       item.lastName.toLowerCase().includes(s) ||
       (item.teamName && item.teamName.toLowerCase().includes(s)) ||
       item.sport.toLowerCase().includes(s);
-
     const matchesCategory =
       selectedCategory === "All" ? true : item.sport.includes(selectedCategory);
     const matchesType =
       filterType === "All" ? true : item.participationType === filterType;
-
     return matchesSearch && matchesCategory && matchesType;
   });
 
@@ -255,7 +297,7 @@ export default function SportsAdminPage() {
               onClick={handleExport}
               className="h-10 md:h-12 px-4 md:px-6 rounded-xl md:rounded-2xl bg-zinc-900 text-white hover:bg-zinc-800 font-bold text-xs md:text-sm flex items-center gap-2 shadow-lg shadow-zinc-300/50"
             >
-              <Download className="w-3 h-3 md:w-4 md:h-4" /> Export
+              <Download className="w-3 h-3 md:w-4 md:h-4" /> Export CSV
             </button>
             <button
               onClick={fetchData}
@@ -266,9 +308,9 @@ export default function SportsAdminPage() {
           </div>
         </div>
 
-        {/* --- AT A GLANCE (BENTO GRID) --- */}
+        {/* --- AT A GLANCE --- */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* 1. Total Stats */}
+          {/* Total Stats */}
           <div className="bg-zinc-900 text-white p-6 rounded-[2rem] shadow-xl md:col-span-1 flex flex-col justify-between relative overflow-hidden min-h-[200px]">
             <div className="relative z-10">
               <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest">
@@ -301,7 +343,7 @@ export default function SportsAdminPage() {
             <div className="absolute -right-4 -top-4 w-32 h-32 bg-zinc-800 rounded-full blur-2xl opacity-50" />
           </div>
 
-          {/* 2. E-SPORTS VOTING (DEDICATED SECTION) */}
+          {/* E-SPORTS VOTING */}
           <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-zinc-100 md:col-span-1 lg:col-span-3 overflow-hidden flex flex-col relative">
             <div className="flex items-center gap-3 mb-4 z-10">
               <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
@@ -316,12 +358,10 @@ export default function SportsAdminPage() {
                 </p>
               </div>
             </div>
-
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 z-10">
               {E_SPORTS_LIST.map((game) => {
                 const count = stats.eSportsCounts[game] || 0;
                 const isWinner = stats.eSportsWinner === game && count > 0;
-
                 return (
                   <div
                     key={game}
@@ -344,17 +384,15 @@ export default function SportsAdminPage() {
                 );
               })}
             </div>
-            {/* Background Decoration */}
             <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-zinc-50 to-transparent pointer-events-none" />
           </div>
 
-          {/* 3. ALL ENTRIES BREAKDOWN (Full Width) */}
+          {/* BREAKDOWN */}
           <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-zinc-100 md:col-span-2 lg:col-span-4 overflow-hidden flex flex-col">
             <div className="flex items-center gap-2 mb-4">
               <BarChart3 className="w-5 h-5 text-zinc-400" />
               <h3 className="font-bold text-zinc-900">Entries per Sport</h3>
             </div>
-
             <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
               {stats.sortedSports.map((sport, idx) => (
                 <div
@@ -378,9 +416,8 @@ export default function SportsAdminPage() {
           </div>
         </div>
 
-        {/* --- SMART FILTERS --- */}
+        {/* --- FILTERS --- */}
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 sticky top-2 z-30 pointer-events-none">
-          {/* Filter Group */}
           <div className="flex flex-col md:flex-row gap-2 md:gap-4 pointer-events-auto bg-[#F2F2F2]/95 p-2 rounded-2xl backdrop-blur-md w-full xl:w-auto shadow-sm md:shadow-none border md:border-none border-zinc-200">
             <div className="bg-white p-1 rounded-xl border border-zinc-200 shadow-sm flex h-10 w-full md:w-fit shrink-0">
               {(["All", "Solo", "Team"] as const).map((type) => (
@@ -410,14 +447,12 @@ export default function SportsAdminPage() {
               ))}
             </div>
           </div>
-
-          {/* View & Search */}
           <div className="flex gap-2 pointer-events-auto w-full xl:w-auto">
             <div className="relative w-full xl:w-64 group">
               <Search className="absolute left-3 top-3 w-4 h-4 text-zinc-400 group-focus-within:text-zinc-800 transition-colors" />
               <input
                 type="text"
-                placeholder="Search name, team..."
+                placeholder="Search..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full h-10 pl-9 pr-4 rounded-xl border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-zinc-900 bg-white shadow-sm transition-all"
@@ -440,7 +475,7 @@ export default function SportsAdminPage() {
           </div>
         </div>
 
-        {/* --- DATA TABLE --- */}
+        {/* --- DATA VIEW --- */}
         {viewMode === "list" ? (
           <div className="bg-white rounded-[2rem] border border-zinc-100 shadow-sm overflow-hidden p-1">
             <div className="overflow-x-auto">
@@ -558,7 +593,7 @@ export default function SportsAdminPage() {
         )}
       </div>
 
-      {/* --- DETAILS DRAWER --- */}
+      {/* --- DRAWER --- */}
       {selectedItem && (
         <>
           <div
@@ -575,7 +610,6 @@ export default function SportsAdminPage() {
                 <X className="w-4 h-4" />
               </button>
             </div>
-
             <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
               <div className="bg-zinc-900 rounded-3xl p-6 text-white text-center shadow-lg shadow-zinc-300">
                 <div className="w-20 h-20 bg-zinc-800 rounded-full mx-auto flex items-center justify-center text-2xl font-bold mb-3">
@@ -599,7 +633,6 @@ export default function SportsAdminPage() {
                   )}
                 </div>
               </div>
-
               {(() => {
                 const { faculty, semester, roster } = parseDetails(
                   selectedItem.message,
@@ -691,16 +724,12 @@ export default function SportsAdminPage() {
                 );
               })()}
             </div>
-
             <div className="p-5 border-t border-zinc-100 bg-zinc-50 flex gap-3">
               <button
                 onClick={(e) => handleDelete(selectedItem.id, e)}
                 className="flex-1 h-12 border border-zinc-200 rounded-xl font-bold text-zinc-500 hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-colors flex items-center justify-center gap-2"
               >
                 <Trash2 className="w-4 h-4" /> Delete
-              </button>
-              <button className="flex-1 h-12 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition-colors shadow-lg shadow-zinc-300">
-                Download
               </button>
             </div>
           </div>
