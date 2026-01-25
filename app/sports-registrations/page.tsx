@@ -17,6 +17,8 @@ import {
   BarChart3,
   Gamepad2,
   ChevronRight,
+  Pencil, // Added Pencil icon
+  Save, // Added Save icon
 } from "lucide-react";
 
 // --- Types ---
@@ -42,7 +44,6 @@ const E_SPORTS_LIST = [
 ];
 
 // --- HELPER: SMART PARSER ---
-// Extracts structured data from the unstructured message field
 const parseDetails = (message?: string) => {
   if (!message)
     return { faculty: "N/A", semester: "N/A", roster: [] as string[] };
@@ -68,7 +69,6 @@ const parseDetails = (message?: string) => {
     ) {
       return;
     } else {
-      // Clean up numbering like "1. Name" or "P1 - Name"
       const cleanName = line.replace(/^[\d-pP]+\.?\)?\s*[-:]?\s*/, "").trim();
       if (cleanName.length > 1) roster.push(cleanName);
     }
@@ -86,7 +86,11 @@ export default function SportsAdminPage() {
   // FILTERS
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [filterType, setFilterType] = useState<"All" | "Solo" | "Team">("All");
+
+  // SELECTION & EDITING
   const [selectedItem, setSelectedItem] = useState<Registration | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState<Partial<Registration>>({});
 
   // --- FETCH DATA ---
   const fetchData = async () => {
@@ -107,24 +111,61 @@ export default function SportsAdminPage() {
     fetchData();
   }, []);
 
-  // --- DELETE ---
+  // --- RESET EDIT STATE ON SELECTION CHANGE ---
+  useEffect(() => {
+    if (selectedItem) {
+      setEditForm(selectedItem);
+      setIsEditing(false);
+    } else {
+      setEditForm({});
+    }
+  }, [selectedItem]);
+
+  // --- HANDLERS ---
   const handleDelete = async (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     if (!confirm("Are you sure you want to delete this registration?")) return;
     try {
       await fetch(`/api/sports-registrations/${id}`, { method: "DELETE" });
-      fetchData();
-      setSelectedItem(null);
+      fetchData(); // Refresh list
+      setSelectedItem(null); // Close drawer
     } catch (error) {
       console.error(error);
+      alert("Failed to delete");
     }
   };
 
-  // --- IMPROVED EXPORT CSV ---
+  const handleUpdate = async () => {
+    if (!selectedItem || !editForm) return;
+
+    try {
+      const res = await fetch(`/api/sports-registrations/${selectedItem.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+
+      if (!res.ok) throw new Error("Failed to update");
+
+      const updatedItem = await res.json();
+
+      // Update local data state
+      setData((prev) =>
+        prev.map((item) => (item.id === updatedItem.id ? updatedItem : item)),
+      );
+
+      // Update selected item to reflect changes
+      setSelectedItem(updatedItem);
+      setIsEditing(false);
+    } catch (error) {
+      console.error(error);
+      alert("Failed to update registration");
+    }
+  };
+
+  // --- EXPORT CSV (Unchanged Logic) ---
   const handleExport = () => {
     if (filteredData.length === 0) return alert("No data to export");
-
-    // 1. Define Professional Headers
     const headers = [
       "Registration ID",
       "Participant Name",
@@ -133,32 +174,23 @@ export default function SportsAdminPage() {
       "Sport / Event",
       "Participation Type",
       "Team Name",
-      "Faculty", // Extracted
-      "Semester", // Extracted
-      "Roster / Notes", // Cleaned
+      "Faculty",
+      "Semester",
+      "Roster / Notes",
       "Registration Date",
     ];
-
-    // 2. Process Rows with Formatting
     const rows = filteredData.map((item) => {
-      // Parse the messy message field to extract clean details
       const { faculty, semester, roster } = parseDetails(item.message);
-
-      // Format Roster/Notes:
-      // If Team, join roster with commas. If Solo, just clean up newlines.
       let noteContent = "";
       if (item.participationType === "Team" && roster.length > 0) {
         noteContent = "Team Members: " + roster.join(" | ");
       } else {
-        // Remove headers (Faculty:, Semester:) from the note text to avoid duplication
         noteContent = (item.message || "")
           .replace(/faculty:.*|semester:.*|academic details:|roster:/gi, "")
           .replace(/[\n\r]+/g, " ")
           .trim();
       }
       if (!noteContent) noteContent = "N/A";
-
-      // Format Date (Readable)
       const formattedDate = new Date(item.createdAt).toLocaleString("en-US", {
         year: "numeric",
         month: "short",
@@ -166,10 +198,7 @@ export default function SportsAdminPage() {
         hour: "2-digit",
         minute: "2-digit",
       });
-
-      // Safe CSV String (Handles commas inside data by wrapping in quotes)
       const safe = (str: string) => `"${(str || "").replace(/"/g, '""')}"`;
-
       return [
         safe(item.id),
         safe(`${item.firstName} ${item.lastName}`),
@@ -184,32 +213,26 @@ export default function SportsAdminPage() {
         safe(formattedDate),
       ].join(",");
     });
-
-    // 3. Generate File with Dynamic Name
     const csvContent =
       "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.href = encodedUri;
-
-    // Clean filename (e.g. "Sports_PUBG_Mobile_Team_2024-01-01.csv")
     const safeCategory = selectedCategory.replace(/ /g, "_");
     const safeDate = new Date().toISOString().split("T")[0];
     link.download = `Sports_${safeCategory}_${filterType}_${safeDate}.csv`;
-
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // --- STATS LOGIC ---
+  // --- STATS & FILTER LOGIC (Unchanged) ---
   const stats = useMemo(() => {
     const sportCounts: Record<string, number> = {};
     const eSportsCounts: Record<string, number> = {};
     E_SPORTS_LIST.forEach((game) => (eSportsCounts[game] = 0));
     let teamCount = 0;
     let soloCount = 0;
-
     data.forEach((reg) => {
       if (reg.participationType === "Team") teamCount++;
       else soloCount++;
@@ -223,11 +246,9 @@ export default function SportsAdminPage() {
         if (matchedESport) eSportsCounts[matchedESport] += 1;
       });
     });
-
     const sortedSports = Object.entries(sportCounts)
       .sort(([, a], [, b]) => b - a)
       .map(([name, count]) => ({ name, count }));
-
     let maxVotes = 0;
     let winner = "None";
     Object.entries(eSportsCounts).forEach(([game, count]) => {
@@ -236,7 +257,6 @@ export default function SportsAdminPage() {
         winner = game;
       }
     });
-
     return {
       sportCounts,
       sortedSports,
@@ -252,25 +272,19 @@ export default function SportsAdminPage() {
     () => ["All", ...stats.sortedSports.map((s) => s.name)],
     [stats],
   );
-
-  // --- FILTER LOGIC ---
   const filteredData = data.filter((item) => {
     const s = search.toLowerCase();
-    const matchesSearch =
-      item.firstName.toLowerCase().includes(s) ||
-      item.lastName.toLowerCase().includes(s) ||
-      (item.teamName && item.teamName.toLowerCase().includes(s)) ||
-      item.sport.toLowerCase().includes(s);
-    const matchesCategory =
-      selectedCategory === "All" ? true : item.sport.includes(selectedCategory);
-    const matchesType =
-      filterType === "All" ? true : item.participationType === filterType;
-    return matchesSearch && matchesCategory && matchesType;
+    return (
+      (item.firstName.toLowerCase().includes(s) ||
+        item.lastName.toLowerCase().includes(s) ||
+        (item.teamName && item.teamName.toLowerCase().includes(s)) ||
+        item.sport.toLowerCase().includes(s)) &&
+      (selectedCategory === "All" || item.sport.includes(selectedCategory)) &&
+      (filterType === "All" || item.participationType === filterType)
+    );
   });
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-  };
+  const copyToClipboard = (text: string) => navigator.clipboard.writeText(text);
 
   if (loading)
     return (
@@ -308,9 +322,8 @@ export default function SportsAdminPage() {
           </div>
         </div>
 
-        {/* --- AT A GLANCE --- */}
+        {/* --- AT A GLANCE & STATS (Compact for brevity) --- */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Total Stats */}
           <div className="bg-zinc-900 text-white p-6 rounded-[2rem] shadow-xl md:col-span-1 flex flex-col justify-between relative overflow-hidden min-h-[200px]">
             <div className="relative z-10">
               <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest">
@@ -343,7 +356,6 @@ export default function SportsAdminPage() {
             <div className="absolute -right-4 -top-4 w-32 h-32 bg-zinc-800 rounded-full blur-2xl opacity-50" />
           </div>
 
-          {/* E-SPORTS VOTING */}
           <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-zinc-100 md:col-span-1 lg:col-span-3 overflow-hidden flex flex-col relative">
             <div className="flex items-center gap-3 mb-4 z-10">
               <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
@@ -384,10 +396,7 @@ export default function SportsAdminPage() {
                 );
               })}
             </div>
-            <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-zinc-50 to-transparent pointer-events-none" />
           </div>
-
-          {/* BREAKDOWN */}
           <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-zinc-100 md:col-span-2 lg:col-span-4 overflow-hidden flex flex-col">
             <div className="flex items-center gap-2 mb-4">
               <BarChart3 className="w-5 h-5 text-zinc-400" />
@@ -601,136 +610,312 @@ export default function SportsAdminPage() {
             onClick={() => setSelectedItem(null)}
           />
           <div className="fixed inset-y-0 right-0 w-full md:w-[480px] bg-white shadow-2xl z-50 p-0 flex flex-col animate-in slide-in-from-right duration-300">
+            {/* Drawer Header */}
             <div className="p-5 border-b border-zinc-100 flex items-center justify-between bg-white/90 backdrop-blur-md sticky top-0 z-10">
-              <h2 className="text-lg font-bold text-zinc-900">Details</h2>
-              <button
-                onClick={() => setSelectedItem(null)}
-                className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 hover:bg-zinc-200"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
-              <div className="bg-zinc-900 rounded-3xl p-6 text-white text-center shadow-lg shadow-zinc-300">
-                <div className="w-20 h-20 bg-zinc-800 rounded-full mx-auto flex items-center justify-center text-2xl font-bold mb-3">
-                  {selectedItem.firstName[0]}
-                  {selectedItem.lastName[0]}
-                </div>
-                <h3 className="text-2xl font-bold">
-                  {selectedItem.firstName} {selectedItem.lastName}
-                </h3>
-                <p className="text-zinc-400 text-sm font-medium mt-1 break-all">
-                  {selectedItem.email}
-                </p>
-                <div className="flex flex-wrap justify-center gap-2 mt-4">
-                  <span className="px-3 py-1 bg-zinc-800 rounded-full text-xs font-bold">
-                    {selectedItem.sport}
-                  </span>
-                  {selectedItem.participationType === "Team" && (
-                    <span className="px-3 py-1 bg-blue-600 rounded-full text-xs font-bold">
-                      Captain
-                    </span>
-                  )}
-                </div>
+              <h2 className="text-lg font-bold text-zinc-900">
+                {isEditing ? "Edit Registration" : "Details"}
+              </h2>
+              <div className="flex items-center gap-2">
+                {!isEditing && (
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-600 hover:bg-zinc-900 hover:text-white transition-colors"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                )}
+                <button
+                  onClick={() => setSelectedItem(null)}
+                  className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 hover:bg-zinc-200"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              {(() => {
-                const { faculty, semester, roster } = parseDetails(
-                  selectedItem.message,
-                );
-                return (
-                  <>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-2xl">
-                        <div className="flex items-center gap-2 mb-1 text-zinc-400">
-                          <GraduationCap className="w-3.5 h-3.5" />
-                          <span className="text-[10px] font-bold uppercase">
-                            Faculty
-                          </span>
-                        </div>
-                        <p className="font-bold text-zinc-900 capitalize">
-                          {faculty}
-                        </p>
-                      </div>
-                      <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-2xl">
-                        <div className="flex items-center gap-2 mb-1 text-zinc-400">
-                          <BookOpen className="w-3.5 h-3.5" />
-                          <span className="text-[10px] font-bold uppercase">
-                            Semester
-                          </span>
-                        </div>
-                        <p className="font-bold text-zinc-900">{semester}</p>
-                      </div>
-                    </div>
-                    <div className="bg-white border border-zinc-100 rounded-2xl p-4 space-y-3 shadow-sm">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-zinc-500 font-bold">
-                          Phone
-                        </span>
-                        <span
-                          className="text-sm font-bold text-zinc-900 cursor-pointer hover:text-blue-600"
-                          onClick={() => copyToClipboard(selectedItem.phone)}
-                        >
-                          {selectedItem.phone}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-zinc-500 font-bold">
-                          Team Name
-                        </span>
-                        <span className="text-sm font-bold text-zinc-900 text-right">
-                          {selectedItem.teamName || "N/A"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-zinc-500 font-bold">
-                          Registered
-                        </span>
-                        <span className="text-sm font-bold text-zinc-900">
-                          {new Date(
-                            selectedItem.createdAt,
-                          ).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </div>
-                    {selectedItem.participationType === "Team" && (
-                      <div>
-                        <h4 className="font-bold text-sm uppercase tracking-wide text-zinc-400 mb-3 ml-1">
-                          Full Roster
-                        </h4>
-                        <div className="bg-zinc-50 border border-zinc-100 rounded-2xl overflow-hidden">
-                          {roster.length > 0 ? (
-                            roster.map((m, i) => (
-                              <div
-                                key={i}
-                                className="p-3 border-b border-zinc-100 last:border-0 flex items-center gap-3"
-                              >
-                                <div className="w-6 h-6 rounded bg-white border border-zinc-200 flex items-center justify-center text-[10px] font-bold text-zinc-400">
-                                  {i + 1}
-                                </div>
-                                <span className="text-sm font-bold text-zinc-700 capitalize">
-                                  {m}
-                                </span>
-                              </div>
-                            ))
-                          ) : (
-                            <p className="p-4 text-xs text-zinc-400 italic text-center">
-                              No roster details found.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
             </div>
+
+            {/* Drawer Content */}
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+              {isEditing ? (
+                // --- EDIT MODE ---
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-500 uppercase">
+                        First Name
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.firstName || ""}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            firstName: e.target.value,
+                          })
+                        }
+                        className="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-500 uppercase">
+                        Last Name
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.lastName || ""}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, lastName: e.target.value })
+                        }
+                        className="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-zinc-500 uppercase">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      value={editForm.email || ""}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, email: e.target.value })
+                      }
+                      className="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-zinc-500 uppercase">
+                      Phone
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.phone || ""}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, phone: e.target.value })
+                      }
+                      className="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-zinc-500 uppercase">
+                      Sport
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.sport || ""}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, sport: e.target.value })
+                      }
+                      className="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-zinc-500 uppercase">
+                      Participation Type
+                    </label>
+                    <div className="flex gap-2">
+                      {["Solo", "Team"].map((type) => (
+                        <button
+                          key={type}
+                          onClick={() =>
+                            setEditForm({
+                              ...editForm,
+                              participationType: type as "Solo" | "Team",
+                            })
+                          }
+                          className={`flex-1 py-2 rounded-lg text-xs font-bold border ${editForm.participationType === type ? "bg-zinc-900 text-white border-zinc-900" : "bg-white text-zinc-500 border-zinc-200"}`}
+                        >
+                          {type}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {editForm.participationType === "Team" && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-zinc-500 uppercase">
+                        Team Name
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.teamName || ""}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, teamName: e.target.value })
+                        }
+                        className="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-zinc-500 uppercase">
+                      Raw Message Data (Faculty/Roster)
+                    </label>
+                    <textarea
+                      rows={6}
+                      value={editForm.message || ""}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, message: e.target.value })
+                      }
+                      className="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-zinc-900 resize-none"
+                    />
+                    <p className="text-[10px] text-zinc-400">
+                      Editing this updates the parsed Faculty, Semester, and
+                      Roster fields.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                // --- VIEW MODE ---
+                <>
+                  <div className="bg-zinc-900 rounded-3xl p-6 text-white text-center shadow-lg shadow-zinc-300">
+                    <div className="w-20 h-20 bg-zinc-800 rounded-full mx-auto flex items-center justify-center text-2xl font-bold mb-3">
+                      {selectedItem.firstName[0]}
+                      {selectedItem.lastName[0]}
+                    </div>
+                    <h3 className="text-2xl font-bold">
+                      {selectedItem.firstName} {selectedItem.lastName}
+                    </h3>
+                    <p className="text-zinc-400 text-sm font-medium mt-1 break-all">
+                      {selectedItem.email}
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-2 mt-4">
+                      <span className="px-3 py-1 bg-zinc-800 rounded-full text-xs font-bold">
+                        {selectedItem.sport}
+                      </span>
+                      {selectedItem.participationType === "Team" && (
+                        <span className="px-3 py-1 bg-blue-600 rounded-full text-xs font-bold">
+                          Captain
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {(() => {
+                    const { faculty, semester, roster } = parseDetails(
+                      selectedItem.message,
+                    );
+                    return (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-2xl">
+                            <div className="flex items-center gap-2 mb-1 text-zinc-400">
+                              <GraduationCap className="w-3.5 h-3.5" />
+                              <span className="text-[10px] font-bold uppercase">
+                                Faculty
+                              </span>
+                            </div>
+                            <p className="font-bold text-zinc-900 capitalize">
+                              {faculty}
+                            </p>
+                          </div>
+                          <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-2xl">
+                            <div className="flex items-center gap-2 mb-1 text-zinc-400">
+                              <BookOpen className="w-3.5 h-3.5" />
+                              <span className="text-[10px] font-bold uppercase">
+                                Semester
+                              </span>
+                            </div>
+                            <p className="font-bold text-zinc-900">
+                              {semester}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="bg-white border border-zinc-100 rounded-2xl p-4 space-y-3 shadow-sm">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-zinc-500 font-bold">
+                              Phone
+                            </span>
+                            <span
+                              className="text-sm font-bold text-zinc-900 cursor-pointer hover:text-blue-600"
+                              onClick={() =>
+                                copyToClipboard(selectedItem.phone)
+                              }
+                            >
+                              {selectedItem.phone}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-zinc-500 font-bold">
+                              Team Name
+                            </span>
+                            <span className="text-sm font-bold text-zinc-900 text-right">
+                              {selectedItem.teamName || "N/A"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-zinc-500 font-bold">
+                              Registered
+                            </span>
+                            <span className="text-sm font-bold text-zinc-900">
+                              {new Date(
+                                selectedItem.createdAt,
+                              ).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                        {selectedItem.participationType === "Team" && (
+                          <div>
+                            <h4 className="font-bold text-sm uppercase tracking-wide text-zinc-400 mb-3 ml-1">
+                              Full Roster
+                            </h4>
+                            <div className="bg-zinc-50 border border-zinc-100 rounded-2xl overflow-hidden">
+                              {roster.length > 0 ? (
+                                roster.map((m, i) => (
+                                  <div
+                                    key={i}
+                                    className="p-3 border-b border-zinc-100 last:border-0 flex items-center gap-3"
+                                  >
+                                    <div className="w-6 h-6 rounded bg-white border border-zinc-200 flex items-center justify-center text-[10px] font-bold text-zinc-400">
+                                      {i + 1}
+                                    </div>
+                                    <span className="text-sm font-bold text-zinc-700 capitalize">
+                                      {m}
+                                    </span>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="p-4 text-xs text-zinc-400 italic text-center">
+                                  No roster details found.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+
+            {/* Drawer Footer Actions */}
             <div className="p-5 border-t border-zinc-100 bg-zinc-50 flex gap-3">
-              <button
-                onClick={(e) => handleDelete(selectedItem.id, e)}
-                className="flex-1 h-12 border border-zinc-200 rounded-xl font-bold text-zinc-500 hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-colors flex items-center justify-center gap-2"
-              >
-                <Trash2 className="w-4 h-4" /> Delete
-              </button>
+              {isEditing ? (
+                <>
+                  <button
+                    onClick={() => setIsEditing(false)}
+                    className="flex-1 h-12 border border-zinc-200 rounded-xl font-bold text-zinc-500 hover:bg-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleUpdate}
+                    className="flex-1 h-12 bg-zinc-900 rounded-xl font-bold text-white hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Save className="w-4 h-4" /> Save Changes
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={(e) => handleDelete(selectedItem.id, e)}
+                  className="flex-1 h-12 border border-zinc-200 rounded-xl font-bold text-zinc-500 hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Trash2 className="w-4 h-4" /> Delete
+                </button>
+              )}
             </div>
           </div>
         </>
