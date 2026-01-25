@@ -39,8 +39,6 @@ const E_SPORTS_LIST = [
   "Free Fire",
   "Clash Royale",
   "Mobile Legends",
-  "FIFA",
-  "eFootball",
 ];
 
 // --- HELPER: SMART PARSER ---
