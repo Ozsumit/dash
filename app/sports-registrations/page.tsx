@@ -17,8 +17,9 @@ import {
   BarChart3,
   Gamepad2,
   ChevronRight,
-  Pencil, // Added Pencil icon
-  Save, // Added Save icon
+  Pencil,
+  Save,
+  Layers,
 } from "lucide-react";
 
 // --- Types ---
@@ -33,6 +34,18 @@ type Registration = {
   teamName?: string;
   message?: string;
   createdAt: string;
+};
+
+// New Type for Normalized Data
+type GroupedRegistrant = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  registrations: Registration[];
+  uniqueSports: string[];
+  types: ("Solo" | "Team")[];
+  latestDate: string;
 };
 
 // --- CONSTANTS ---
@@ -88,8 +101,11 @@ export default function SportsAdminPage() {
   const [filterType, setFilterType] = useState<"All" | "Solo" | "Team">("All");
 
   // SELECTION & EDITING
-  const [selectedItem, setSelectedItem] = useState<Registration | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<GroupedRegistrant | null>(
+    null,
+  );
+  // Which specific registration ID inside the group are we editing?
+  const [editingRegId, setEditingRegId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Registration>>({});
 
   // --- FETCH DATA ---
@@ -111,24 +127,162 @@ export default function SportsAdminPage() {
     fetchData();
   }, []);
 
-  // --- RESET EDIT STATE ON SELECTION CHANGE ---
-  useEffect(() => {
-    if (selectedItem) {
-      setEditForm(selectedItem);
-      setIsEditing(false);
-    } else {
-      setEditForm({});
-    }
-  }, [selectedItem]);
+  // --- NORMALIZE DATA (GROUP BY EMAIL) ---
+  const normalizedData = useMemo(() => {
+    const map = new Map<string, GroupedRegistrant>();
 
-  // --- HANDLERS ---
-  const handleDelete = async (id: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    if (!confirm("Are you sure you want to delete this registration?")) return;
+    data.forEach((reg) => {
+      // Normalize email to lowercase for grouping
+      const key = reg.email.toLowerCase().trim();
+
+      if (!map.has(key)) {
+        map.set(key, {
+          email: reg.email,
+          firstName: reg.firstName,
+          lastName: reg.lastName,
+          phone: reg.phone,
+          registrations: [],
+          uniqueSports: [],
+          types: [],
+          latestDate: reg.createdAt,
+        });
+      }
+
+      const entry = map.get(key)!;
+      entry.registrations.push(reg);
+
+      // Update aggregation arrays
+      if (!entry.uniqueSports.includes(reg.sport)) {
+        entry.uniqueSports.push(reg.sport);
+      }
+      if (!entry.types.includes(reg.participationType)) {
+        entry.types.push(reg.participationType);
+      }
+
+      // Keep latest info for the "Main" profile details
+      if (new Date(reg.createdAt) > new Date(entry.latestDate)) {
+        entry.latestDate = reg.createdAt;
+        entry.firstName = reg.firstName;
+        entry.lastName = reg.lastName;
+        entry.phone = reg.phone;
+      }
+    });
+
+    // Convert map to array and sort by latest date
+    return Array.from(map.values()).sort(
+      (a, b) =>
+        new Date(b.latestDate).getTime() - new Date(a.latestDate).getTime(),
+    );
+  }, [data]);
+
+  // --- FILTERED NORMALIZED DATA ---
+  const filteredNormalizedData = useMemo(() => {
+    const s = search.toLowerCase();
+    return normalizedData.filter((group) => {
+      // 1. Text Search
+      const matchesSearch =
+        group.firstName.toLowerCase().includes(s) ||
+        group.lastName.toLowerCase().includes(s) ||
+        group.email.toLowerCase().includes(s) ||
+        group.registrations.some(
+          (r) =>
+            r.sport.toLowerCase().includes(s) ||
+            (r.teamName && r.teamName.toLowerCase().includes(s)),
+        );
+
+      // 2. Category Filter
+      const matchesCategory =
+        selectedCategory === "All" ||
+        group.uniqueSports.some((sport) => sport.includes(selectedCategory));
+
+      // 3. Type Filter
+      const matchesType =
+        filterType === "All" || group.types.includes(filterType);
+
+      return matchesSearch && matchesCategory && matchesType;
+    });
+  }, [normalizedData, search, selectedCategory, filterType]);
+
+  // --- STATS LOGIC ---
+  const stats = useMemo(() => {
+    const sportCounts: Record<string, number> = {};
+    const eSportsCounts: Record<string, number> = {};
+    E_SPORTS_LIST.forEach((game) => (eSportsCounts[game] = 0));
+    let teamCount = 0;
+    let soloCount = 0;
+
+    data.forEach((reg) => {
+      if (reg.participationType === "Team") teamCount++;
+      else soloCount++;
+
+      const sports = reg.sport.split(",").map((s) => s.trim());
+      sports.forEach((s) => {
+        if (!s) return;
+        sportCounts[s] = (sportCounts[s] || 0) + 1;
+        const matchedESport = E_SPORTS_LIST.find((e) =>
+          s.toLowerCase().includes(e.toLowerCase()),
+        );
+        if (matchedESport) eSportsCounts[matchedESport] += 1;
+      });
+    });
+
+    const sortedSports = Object.entries(sportCounts)
+      .sort(([, a], [, b]) => b - a)
+      .map(([name, count]) => ({ name, count }));
+
+    let maxVotes = 0;
+    let winner = "None";
+    Object.entries(eSportsCounts).forEach(([game, count]) => {
+      if (count > maxVotes) {
+        maxVotes = count;
+        winner = game;
+      }
+    });
+
+    return {
+      sportCounts,
+      sortedSports,
+      eSportsCounts,
+      eSportsWinner: winner,
+      teamCount,
+      soloCount,
+      totalRegistrations: data.length,
+      totalUniqueUsers: normalizedData.length,
+    };
+  }, [data, normalizedData]);
+
+  const categories = useMemo(
+    () => ["All", ...stats.sortedSports.map((s) => s.name)],
+    [stats],
+  );
+
+  // --- ACTION HANDLERS ---
+  const initEdit = (reg: Registration) => {
+    setEditForm(reg);
+    setEditingRegId(reg.id);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this specific entry?"))
+      return;
     try {
       await fetch(`/api/sports-registrations/${id}`, { method: "DELETE" });
-      fetchData(); // Refresh list
-      setSelectedItem(null); // Close drawer
+      const updatedData = data.filter((item) => item.id !== id);
+      setData(updatedData);
+
+      if (selectedGroup) {
+        const updatedGroupRegs = selectedGroup.registrations.filter(
+          (r) => r.id !== id,
+        );
+        if (updatedGroupRegs.length === 0) {
+          setSelectedGroup(null);
+        } else {
+          setSelectedGroup({
+            ...selectedGroup,
+            registrations: updatedGroupRegs,
+          });
+        }
+      }
     } catch (error) {
       console.error(error);
       alert("Failed to delete");
@@ -136,10 +290,10 @@ export default function SportsAdminPage() {
   };
 
   const handleUpdate = async () => {
-    if (!selectedItem || !editForm) return;
+    if (!editingRegId || !editForm) return;
 
     try {
-      const res = await fetch(`/api/sports-registrations/${selectedItem.id}`, {
+      const res = await fetch(`/api/sports-registrations/${editingRegId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(editForm),
@@ -149,23 +303,27 @@ export default function SportsAdminPage() {
 
       const updatedItem = await res.json();
 
-      // Update local data state
-      setData((prev) =>
-        prev.map((item) => (item.id === updatedItem.id ? updatedItem : item)),
+      const newData = data.map((item) =>
+        item.id === updatedItem.id ? updatedItem : item,
       );
+      setData(newData);
 
-      // Update selected item to reflect changes
-      setSelectedItem(updatedItem);
-      setIsEditing(false);
+      if (selectedGroup) {
+        const newGroupRegs = selectedGroup.registrations.map((r) =>
+          r.id === updatedItem.id ? updatedItem : r,
+        );
+        setSelectedGroup({ ...selectedGroup, registrations: newGroupRegs });
+      }
+
+      setEditingRegId(null);
     } catch (error) {
       console.error(error);
       alert("Failed to update registration");
     }
   };
 
-  // --- EXPORT CSV (Unchanged Logic) ---
   const handleExport = () => {
-    if (filteredData.length === 0) return alert("No data to export");
+    if (data.length === 0) return alert("No data to export");
     const headers = [
       "Registration ID",
       "Participant Name",
@@ -179,110 +337,66 @@ export default function SportsAdminPage() {
       "Roster / Notes",
       "Registration Date",
     ];
-    const rows = filteredData.map((item) => {
-      const { faculty, semester, roster } = parseDetails(item.message);
-      let noteContent = "";
-      if (item.participationType === "Team" && roster.length > 0) {
-        noteContent = "Team Members: " + roster.join(" | ");
-      } else {
-        noteContent = (item.message || "")
-          .replace(/faculty:.*|semester:.*|academic details:|roster:/gi, "")
-          .replace(/[\n\r]+/g, " ")
-          .trim();
-      }
-      if (!noteContent) noteContent = "N/A";
-      const formattedDate = new Date(item.createdAt).toLocaleString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
+
+    const rows = data
+      .filter((item) => {
+        const s = search.toLowerCase();
+        const matchesSearch =
+          item.firstName.toLowerCase().includes(s) ||
+          item.lastName.toLowerCase().includes(s) ||
+          item.sport.toLowerCase().includes(s);
+        const matchesCat =
+          selectedCategory === "All" || item.sport.includes(selectedCategory);
+        const matchesType =
+          filterType === "All" || item.participationType === filterType;
+        return matchesSearch && matchesCat && matchesType;
+      })
+      .map((item) => {
+        const { faculty, semester, roster } = parseDetails(item.message);
+        let noteContent = "";
+        if (item.participationType === "Team" && roster.length > 0) {
+          noteContent = "Team Members: " + roster.join(" | ");
+        } else {
+          noteContent = (item.message || "")
+            .replace(/faculty:.*|semester:.*|academic details:|roster:/gi, "")
+            .replace(/[\n\r]+/g, " ")
+            .trim();
+        }
+        if (!noteContent) noteContent = "N/A";
+        const formattedDate = new Date(item.createdAt).toLocaleString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        const safe = (str: string) => `"${(str || "").replace(/"/g, '""')}"`;
+        return [
+          safe(item.id),
+          safe(`${item.firstName} ${item.lastName}`),
+          safe(item.email),
+          safe(item.phone),
+          safe(item.sport),
+          safe(item.participationType),
+          safe(item.teamName || "N/A"),
+          safe(faculty),
+          safe(semester),
+          safe(noteContent),
+          safe(formattedDate),
+        ].join(",");
       });
-      const safe = (str: string) => `"${(str || "").replace(/"/g, '""')}"`;
-      return [
-        safe(item.id),
-        safe(`${item.firstName} ${item.lastName}`),
-        safe(item.email),
-        safe(item.phone),
-        safe(item.sport),
-        safe(item.participationType),
-        safe(item.teamName || "N/A"),
-        safe(faculty),
-        safe(semester),
-        safe(noteContent),
-        safe(formattedDate),
-      ].join(",");
-    });
+
     const csvContent =
       "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.href = encodedUri;
     const safeCategory = selectedCategory.replace(/ /g, "_");
-    const safeDate = new Date().toISOString().split("T")[0];
-    link.download = `Sports_${safeCategory}_${filterType}_${safeDate}.csv`;
+    link.download = `Sports_${safeCategory}_${filterType}_${new Date().toISOString().split("T")[0]}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
-
-  // --- STATS & FILTER LOGIC (Unchanged) ---
-  const stats = useMemo(() => {
-    const sportCounts: Record<string, number> = {};
-    const eSportsCounts: Record<string, number> = {};
-    E_SPORTS_LIST.forEach((game) => (eSportsCounts[game] = 0));
-    let teamCount = 0;
-    let soloCount = 0;
-    data.forEach((reg) => {
-      if (reg.participationType === "Team") teamCount++;
-      else soloCount++;
-      const sports = reg.sport.split(",").map((s) => s.trim());
-      sports.forEach((s) => {
-        if (!s) return;
-        sportCounts[s] = (sportCounts[s] || 0) + 1;
-        const matchedESport = E_SPORTS_LIST.find((e) =>
-          s.toLowerCase().includes(e.toLowerCase()),
-        );
-        if (matchedESport) eSportsCounts[matchedESport] += 1;
-      });
-    });
-    const sortedSports = Object.entries(sportCounts)
-      .sort(([, a], [, b]) => b - a)
-      .map(([name, count]) => ({ name, count }));
-    let maxVotes = 0;
-    let winner = "None";
-    Object.entries(eSportsCounts).forEach(([game, count]) => {
-      if (count > maxVotes) {
-        maxVotes = count;
-        winner = game;
-      }
-    });
-    return {
-      sportCounts,
-      sortedSports,
-      eSportsCounts,
-      eSportsWinner: winner,
-      teamCount,
-      soloCount,
-      total: data.length,
-    };
-  }, [data]);
-
-  const categories = useMemo(
-    () => ["All", ...stats.sortedSports.map((s) => s.name)],
-    [stats],
-  );
-  const filteredData = data.filter((item) => {
-    const s = search.toLowerCase();
-    return (
-      (item.firstName.toLowerCase().includes(s) ||
-        item.lastName.toLowerCase().includes(s) ||
-        (item.teamName && item.teamName.toLowerCase().includes(s)) ||
-        item.sport.toLowerCase().includes(s)) &&
-      (selectedCategory === "All" || item.sport.includes(selectedCategory)) &&
-      (filterType === "All" || item.participationType === filterType)
-    );
-  });
 
   const copyToClipboard = (text: string) => navigator.clipboard.writeText(text);
 
@@ -322,16 +436,21 @@ export default function SportsAdminPage() {
           </div>
         </div>
 
-        {/* --- AT A GLANCE & STATS (Compact for brevity) --- */}
+        {/* --- STATS SECTION --- */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-zinc-900 text-white p-6 rounded-[2rem] shadow-xl md:col-span-1 flex flex-col justify-between relative overflow-hidden min-h-[200px]">
             <div className="relative z-10">
               <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest">
-                Total Entries
+                Total Registrations
               </p>
-              <h2 className="text-5xl md:text-6xl font-bold mt-2">
-                {stats.total}
-              </h2>
+              <div className="flex items-baseline gap-2 mt-2">
+                <h2 className="text-5xl md:text-6xl font-bold">
+                  {stats.totalRegistrations}
+                </h2>
+                <span className="text-zinc-500 font-bold text-sm">
+                  ({stats.totalUniqueUsers} Users)
+                </span>
+              </div>
             </div>
             <div className="relative z-10 space-y-2 mt-4">
               <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-zinc-400">
@@ -342,13 +461,13 @@ export default function SportsAdminPage() {
                 <div
                   className="h-full bg-emerald-500"
                   style={{
-                    width: `${(stats.soloCount / Math.max(stats.total, 1)) * 100}%`,
+                    width: `${(stats.soloCount / Math.max(stats.totalRegistrations, 1)) * 100}%`,
                   }}
                 />
                 <div
                   className="h-full bg-blue-500"
                   style={{
-                    width: `${(stats.teamCount / Math.max(stats.total, 1)) * 100}%`,
+                    width: `${(stats.teamCount / Math.max(stats.totalRegistrations, 1)) * 100}%`,
                   }}
                 />
               </div>
@@ -450,7 +569,9 @@ export default function SportsAdminPage() {
                   <span
                     className={`px-1.5 py-0.5 rounded-md text-[10px] bg-zinc-100`}
                   >
-                    {cat === "All" ? stats.total : stats.sportCounts[cat] || 0}
+                    {cat === "All"
+                      ? stats.totalRegistrations
+                      : stats.sportCounts[cat] || 0}
                   </span>
                 </button>
               ))}
@@ -461,7 +582,7 @@ export default function SportsAdminPage() {
               <Search className="absolute left-3 top-3 w-4 h-4 text-zinc-400 group-focus-within:text-zinc-800 transition-colors" />
               <input
                 type="text"
-                placeholder="Search..."
+                placeholder="Search name, email, sport..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full h-10 pl-9 pr-4 rounded-xl border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-zinc-900 bg-white shadow-sm transition-all"
@@ -484,7 +605,7 @@ export default function SportsAdminPage() {
           </div>
         </div>
 
-        {/* --- DATA VIEW --- */}
+        {/* --- NORMALIZED DATA VIEW --- */}
         {viewMode === "list" ? (
           <div className="bg-white rounded-[2rem] border border-zinc-100 shadow-sm overflow-hidden p-1">
             <div className="overflow-x-auto">
@@ -492,68 +613,86 @@ export default function SportsAdminPage() {
                 <thead className="bg-zinc-50/50 text-zinc-400 uppercase text-[10px] font-bold tracking-widest">
                   <tr>
                     <th className="px-6 py-4 rounded-l-xl">Participant</th>
+                    <th className="px-6 py-4">Events</th>
                     <th className="px-6 py-4">Role</th>
-                    <th className="px-6 py-4">Sport</th>
                     <th className="px-6 py-4 text-right rounded-r-xl">
                       Action
                     </th>
                   </tr>
                 </thead>
                 <tbody className="text-zinc-600 text-sm">
-                  {filteredData.map((row) => (
-                    <tr
-                      key={row.id}
-                      onClick={() => setSelectedItem(row)}
-                      className="group border-b border-zinc-50 hover:bg-zinc-50/80 transition-colors last:border-0 cursor-pointer"
-                    >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-zinc-100 flex items-center justify-center text-zinc-500 font-bold group-hover:bg-zinc-900 group-hover:text-white transition-colors shrink-0">
-                            {row.firstName[0]}
-                            {row.lastName[0]}
+                  {filteredNormalizedData.map((group) => {
+                    // Determine Role display
+                    const hasSolo = group.types.includes("Solo");
+                    const hasTeam = group.types.includes("Team");
+                    let roleDisplay;
+                    if (hasSolo && hasTeam) {
+                      roleDisplay = (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 text-zinc-700 border border-zinc-200 text-xs font-bold whitespace-nowrap">
+                          <Layers className="w-3 h-3" /> Mixed
+                        </span>
+                      );
+                    } else if (hasTeam) {
+                      roleDisplay = (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 text-xs font-bold whitespace-nowrap">
+                          <Users className="w-3 h-3" /> Team
+                        </span>
+                      );
+                    } else {
+                      roleDisplay = (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-100 text-xs font-bold whitespace-nowrap">
+                          <User className="w-3 h-3" /> Solo
+                        </span>
+                      );
+                    }
+
+                    return (
+                      <tr
+                        key={group.email}
+                        onClick={() => setSelectedGroup(group)}
+                        className="group border-b border-zinc-50 hover:bg-zinc-50/80 transition-colors last:border-0 cursor-pointer"
+                      >
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-zinc-100 flex items-center justify-center text-zinc-500 font-bold group-hover:bg-zinc-900 group-hover:text-white transition-colors shrink-0">
+                              {group.firstName[0]}
+                              {group.lastName[0]}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="font-bold text-zinc-900 truncate">
+                                  {group.firstName} {group.lastName}
+                                </p>
+                                {group.registrations.length > 1 && (
+                                  <span className="bg-zinc-900 text-white text-[9px] px-1.5 py-0.5 rounded-md font-bold">
+                                    +{group.registrations.length}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-zinc-400 truncate">
+                                {group.email}
+                              </p>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <p className="font-bold text-zinc-900 truncate">
-                              {row.firstName} {row.lastName}
-                            </p>
-                            <p className="text-xs text-zinc-400 truncate">
-                              {row.phone}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        {row.participationType === "Team" ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 text-xs font-bold whitespace-nowrap">
-                            <Users className="w-3 h-3" /> Team Captain
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-100 text-xs font-bold whitespace-nowrap">
-                            <User className="w-3 h-3" /> Solo
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col items-start gap-1">
-                          <span className="font-bold text-zinc-900 whitespace-nowrap">
-                            {row.sport}
-                          </span>
-                          {row.teamName && (
-                            <span className="text-[10px] font-bold uppercase text-zinc-400 tracking-wide whitespace-nowrap">
-                              Team: {row.teamName}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="font-bold text-zinc-900 line-clamp-2">
+                              {group.uniqueSports.join(", ")}
                             </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <ChevronRight className="w-4 h-4 text-zinc-300 ml-auto" />
-                      </td>
-                    </tr>
-                  ))}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">{roleDisplay}</td>
+                        <td className="px-6 py-4 text-right">
+                          <ChevronRight className="w-4 h-4 text-zinc-300 ml-auto" />
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-            {filteredData.length === 0 && (
+            {filteredNormalizedData.length === 0 && (
               <div className="p-12 text-center text-zinc-400 font-medium">
                 No results found.
               </div>
@@ -561,71 +700,75 @@ export default function SportsAdminPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredData.map((row) => (
-              <div
-                key={row.id}
-                onClick={() => setSelectedItem(row)}
-                className="bg-white p-5 rounded-[2rem] border border-zinc-100 shadow-sm hover:border-zinc-300 cursor-pointer transition-all flex flex-col gap-4"
-              >
-                <div className="flex justify-between items-start">
-                  <div className="w-12 h-12 rounded-2xl bg-zinc-50 flex items-center justify-center text-zinc-500 font-bold text-lg">
-                    {row.firstName[0]}
-                    {row.lastName[0]}
+            {filteredNormalizedData.map((group) => {
+              const hasTeam = group.types.includes("Team");
+              return (
+                <div
+                  key={group.email}
+                  onClick={() => setSelectedGroup(group)}
+                  className="bg-white p-5 rounded-[2rem] border border-zinc-100 shadow-sm hover:border-zinc-300 cursor-pointer transition-all flex flex-col gap-4"
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="w-12 h-12 rounded-2xl bg-zinc-50 flex items-center justify-center text-zinc-500 font-bold text-lg">
+                      {group.firstName[0]}
+                      {group.lastName[0]}
+                    </div>
+                    {group.registrations.length > 1 && (
+                      <span className="bg-zinc-100 text-zinc-900 border border-zinc-200 px-2 py-1 rounded-md text-[10px] font-bold uppercase">
+                        {group.registrations.length} Entries
+                      </span>
+                    )}
                   </div>
-                  <span
-                    className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${row.participationType === "Team" ? "bg-blue-50 text-blue-600" : "bg-emerald-50 text-emerald-600"}`}
-                  >
-                    {row.participationType}
-                  </span>
-                </div>
-                <div>
-                  <h4 className="font-bold text-zinc-900 text-lg">
-                    {row.firstName} {row.lastName}
-                  </h4>
-                  <p className="text-xs text-zinc-400 font-bold uppercase mt-1">
-                    {row.sport}
-                  </p>
-                </div>
-                {row.teamName && (
+                  <div>
+                    <h4 className="font-bold text-zinc-900 text-lg">
+                      {group.firstName} {group.lastName}
+                    </h4>
+                    <p className="text-xs text-zinc-400 mt-1 line-clamp-1">
+                      {group.uniqueSports.join(", ")}
+                    </p>
+                  </div>
                   <div className="mt-auto pt-3 border-t border-zinc-50 flex justify-between items-center">
                     <span className="text-[10px] font-bold text-zinc-400 uppercase">
-                      Team
+                      Contact
                     </span>
                     <span className="text-xs font-bold text-zinc-900">
-                      {row.teamName}
+                      {group.phone}
                     </span>
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* --- DRAWER --- */}
-      {selectedItem && (
+      {/* --- DRAWER (Normalized Group View) --- */}
+      {selectedGroup && (
         <>
           <div
             className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40 transition-opacity"
-            onClick={() => setSelectedItem(null)}
+            onClick={() => setSelectedGroup(null)}
           />
-          <div className="fixed inset-y-0 right-0 w-full md:w-[480px] bg-white shadow-2xl z-50 p-0 flex flex-col animate-in slide-in-from-right duration-300">
+          <div className="fixed inset-y-0 right-0 w-full md:w-[500px] bg-white shadow-2xl z-50 p-0 flex flex-col animate-in slide-in-from-right duration-300">
             {/* Drawer Header */}
             <div className="p-5 border-b border-zinc-100 flex items-center justify-between bg-white/90 backdrop-blur-md sticky top-0 z-10">
               <h2 className="text-lg font-bold text-zinc-900">
-                {isEditing ? "Edit Registration" : "Details"}
+                {editingRegId ? "Edit Registration" : "User Profile"}
               </h2>
               <div className="flex items-center gap-2">
-                {!isEditing && (
+                {editingRegId && (
                   <button
-                    onClick={() => setIsEditing(true)}
-                    className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-600 hover:bg-zinc-900 hover:text-white transition-colors"
+                    onClick={() => {
+                      setEditingRegId(null);
+                      setEditForm({});
+                    }}
+                    className="px-3 py-1.5 bg-zinc-100 rounded-lg text-xs font-bold text-zinc-600 hover:bg-zinc-200"
                   >
-                    <Pencil className="w-4 h-4" />
+                    Cancel Edit
                   </button>
                 )}
                 <button
-                  onClick={() => setSelectedItem(null)}
+                  onClick={() => setSelectedGroup(null)}
                   className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 hover:bg-zinc-200"
                 >
                   <X className="w-4 h-4" />
@@ -634,10 +777,10 @@ export default function SportsAdminPage() {
             </div>
 
             {/* Drawer Content */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
-              {isEditing ? (
-                // --- EDIT MODE ---
-                <div className="space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-[#F9F9F9]">
+              {editingRegId ? (
+                // --- EDIT FORM (Specific Registration) ---
+                <div className="space-y-4 bg-white p-4 rounded-2xl shadow-sm border border-zinc-100">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-zinc-500 uppercase">
@@ -670,34 +813,7 @@ export default function SportsAdminPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-zinc-500 uppercase">
-                      Email
-                    </label>
-                    <input
-                      type="email"
-                      value={editForm.email || ""}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, email: e.target.value })
-                      }
-                      className="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-zinc-500 uppercase">
-                      Phone
-                    </label>
-                    <input
-                      type="text"
-                      value={editForm.phone || ""}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, phone: e.target.value })
-                      }
-                      className="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                    />
-                  </div>
-
+                  {/* Sport & Type */}
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-zinc-500 uppercase">
                       Sport
@@ -762,159 +878,134 @@ export default function SportsAdminPage() {
                       }
                       className="w-full p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-zinc-900 resize-none"
                     />
-                    <p className="text-[10px] text-zinc-400">
-                      Editing this updates the parsed Faculty, Semester, and
-                      Roster fields.
-                    </p>
                   </div>
-                </div>
-              ) : (
-                // --- VIEW MODE ---
-                <>
-                  <div className="bg-zinc-900 rounded-3xl p-6 text-white text-center shadow-lg shadow-zinc-300">
-                    <div className="w-20 h-20 bg-zinc-800 rounded-full mx-auto flex items-center justify-center text-2xl font-bold mb-3">
-                      {selectedItem.firstName[0]}
-                      {selectedItem.lastName[0]}
-                    </div>
-                    <h3 className="text-2xl font-bold">
-                      {selectedItem.firstName} {selectedItem.lastName}
-                    </h3>
-                    <p className="text-zinc-400 text-sm font-medium mt-1 break-all">
-                      {selectedItem.email}
-                    </p>
-                    <div className="flex flex-wrap justify-center gap-2 mt-4">
-                      <span className="px-3 py-1 bg-zinc-800 rounded-full text-xs font-bold">
-                        {selectedItem.sport}
-                      </span>
-                      {selectedItem.participationType === "Team" && (
-                        <span className="px-3 py-1 bg-blue-600 rounded-full text-xs font-bold">
-                          Captain
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {(() => {
-                    const { faculty, semester, roster } = parseDetails(
-                      selectedItem.message,
-                    );
-                    return (
-                      <>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-2xl">
-                            <div className="flex items-center gap-2 mb-1 text-zinc-400">
-                              <GraduationCap className="w-3.5 h-3.5" />
-                              <span className="text-[10px] font-bold uppercase">
-                                Faculty
-                              </span>
-                            </div>
-                            <p className="font-bold text-zinc-900 capitalize">
-                              {faculty}
-                            </p>
-                          </div>
-                          <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-2xl">
-                            <div className="flex items-center gap-2 mb-1 text-zinc-400">
-                              <BookOpen className="w-3.5 h-3.5" />
-                              <span className="text-[10px] font-bold uppercase">
-                                Semester
-                              </span>
-                            </div>
-                            <p className="font-bold text-zinc-900">
-                              {semester}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="bg-white border border-zinc-100 rounded-2xl p-4 space-y-3 shadow-sm">
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs text-zinc-500 font-bold">
-                              Phone
-                            </span>
-                            <span
-                              className="text-sm font-bold text-zinc-900 cursor-pointer hover:text-blue-600"
-                              onClick={() =>
-                                copyToClipboard(selectedItem.phone)
-                              }
-                            >
-                              {selectedItem.phone}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs text-zinc-500 font-bold">
-                              Team Name
-                            </span>
-                            <span className="text-sm font-bold text-zinc-900 text-right">
-                              {selectedItem.teamName || "N/A"}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs text-zinc-500 font-bold">
-                              Registered
-                            </span>
-                            <span className="text-sm font-bold text-zinc-900">
-                              {new Date(
-                                selectedItem.createdAt,
-                              ).toLocaleDateString()}
-                            </span>
-                          </div>
-                        </div>
-                        {selectedItem.participationType === "Team" && (
-                          <div>
-                            <h4 className="font-bold text-sm uppercase tracking-wide text-zinc-400 mb-3 ml-1">
-                              Full Roster
-                            </h4>
-                            <div className="bg-zinc-50 border border-zinc-100 rounded-2xl overflow-hidden">
-                              {roster.length > 0 ? (
-                                roster.map((m, i) => (
-                                  <div
-                                    key={i}
-                                    className="p-3 border-b border-zinc-100 last:border-0 flex items-center gap-3"
-                                  >
-                                    <div className="w-6 h-6 rounded bg-white border border-zinc-200 flex items-center justify-center text-[10px] font-bold text-zinc-400">
-                                      {i + 1}
-                                    </div>
-                                    <span className="text-sm font-bold text-zinc-700 capitalize">
-                                      {m}
-                                    </span>
-                                  </div>
-                                ))
-                              ) : (
-                                <p className="p-4 text-xs text-zinc-400 italic text-center">
-                                  No roster details found.
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                </>
-              )}
-            </div>
 
-            {/* Drawer Footer Actions */}
-            <div className="p-5 border-t border-zinc-100 bg-zinc-50 flex gap-3">
-              {isEditing ? (
-                <>
-                  <button
-                    onClick={() => setIsEditing(false)}
-                    className="flex-1 h-12 border border-zinc-200 rounded-xl font-bold text-zinc-500 hover:bg-white transition-colors"
-                  >
-                    Cancel
-                  </button>
                   <button
                     onClick={handleUpdate}
-                    className="flex-1 h-12 bg-zinc-900 rounded-xl font-bold text-white hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2"
+                    className="w-full h-12 bg-zinc-900 rounded-xl font-bold text-white hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2 mt-4"
                   >
                     <Save className="w-4 h-4" /> Save Changes
                   </button>
-                </>
+                </div>
               ) : (
-                <button
-                  onClick={(e) => handleDelete(selectedItem.id, e)}
-                  className="flex-1 h-12 border border-zinc-200 rounded-xl font-bold text-zinc-500 hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Trash2 className="w-4 h-4" /> Delete
-                </button>
+                // --- PROFILE VIEW ---
+                <div className="space-y-6">
+                  {/* User Card */}
+                  <div className="bg-white rounded-[2rem] p-6 text-center shadow-sm border border-zinc-100">
+                    <div className="w-20 h-20 bg-zinc-900 rounded-full mx-auto flex items-center justify-center text-2xl font-bold text-white mb-3">
+                      {selectedGroup.firstName[0]}
+                      {selectedGroup.lastName[0]}
+                    </div>
+                    <h3 className="text-xl font-bold text-zinc-900">
+                      {selectedGroup.firstName} {selectedGroup.lastName}
+                    </h3>
+                    <div className="flex items-center justify-center gap-2 mt-2 text-zinc-400 text-sm font-medium">
+                      <span>{selectedGroup.email}</span>
+                      <span>•</span>
+                      <span
+                        className="hover:text-zinc-900 cursor-pointer"
+                        onClick={() => copyToClipboard(selectedGroup.phone)}
+                      >
+                        {selectedGroup.phone}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Registrations List */}
+                  <div>
+                    <h4 className="px-2 mb-2 text-xs font-bold uppercase text-zinc-400 tracking-wider">
+                      Registrations ({selectedGroup.registrations.length})
+                    </h4>
+                    <div className="space-y-3">
+                      {selectedGroup.registrations.map((reg) => {
+                        const { faculty, semester, roster } = parseDetails(
+                          reg.message,
+                        );
+                        return (
+                          <div
+                            key={reg.id}
+                            className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-sm hover:shadow-md transition-shadow"
+                          >
+                            <div className="flex justify-between items-start mb-3">
+                              <span
+                                className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${reg.participationType === "Team" ? "bg-blue-50 text-blue-600" : "bg-emerald-50 text-emerald-600"}`}
+                              >
+                                {reg.participationType}
+                              </span>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => initEdit(reg)}
+                                  className="w-7 h-7 rounded-lg bg-zinc-50 flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(reg.id)}
+                                  className="w-7 h-7 rounded-lg bg-zinc-50 flex items-center justify-center text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                            <h4 className="font-bold text-zinc-900 text-lg">
+                              {reg.sport}
+                            </h4>
+                            {reg.teamName && (
+                              <p className="text-xs text-zinc-500 font-bold mt-0.5">
+                                Team: {reg.teamName}
+                              </p>
+                            )}
+
+                            {/* Details Grid */}
+                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                              <div className="bg-zinc-50 p-2 rounded-lg">
+                                <span className="block text-[9px] font-bold text-zinc-400 uppercase">
+                                  Faculty
+                                </span>
+                                <span className="font-semibold text-zinc-700">
+                                  {faculty}
+                                </span>
+                              </div>
+                              <div className="bg-zinc-50 p-2 rounded-lg">
+                                <span className="block text-[9px] font-bold text-zinc-400 uppercase">
+                                  Semester
+                                </span>
+                                <span className="font-semibold text-zinc-700">
+                                  {semester}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Roster if applicable (Original UI Style) */}
+                            {reg.participationType === "Team" &&
+                              roster.length > 0 && (
+                                <div className="mt-4">
+                                  <span className="block text-[10px] font-bold text-zinc-400 uppercase mb-2 ml-1">
+                                    Full Roster
+                                  </span>
+                                  <div className="bg-zinc-50 border border-zinc-100 rounded-xl overflow-hidden">
+                                    {roster.map((m, i) => (
+                                      <div
+                                        key={i}
+                                        className="p-3 border-b border-zinc-100 last:border-0 flex items-center gap-3 bg-white/50"
+                                      >
+                                        <div className="w-6 h-6 rounded bg-white border border-zinc-200 flex items-center justify-center text-[10px] font-bold text-zinc-400 shadow-sm">
+                                          {i + 1}
+                                        </div>
+                                        <span className="text-xs font-bold text-zinc-700 capitalize">
+                                          {m}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           </div>

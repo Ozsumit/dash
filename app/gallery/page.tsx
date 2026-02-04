@@ -1,8 +1,8 @@
 "use client";
 
 import type React from "react";
-import { useState, useEffect, useMemo } from "react";
-import { useSearchParams, useRouter } from "next/navigation"; // 1. Import navigation hooks
+import { useState, useEffect, useMemo, useCallback } from "react"; // Added useCallback
+import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Edit, Search, ImageIcon, Loader2 } from "lucide-react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
@@ -45,11 +45,59 @@ const PREDEFINED_CATEGORIES = [
   "Ceremony",
 ];
 
-// Helper to handle image URLs
-const getImageUrl = (url: string) => {
+/**
+ * Converts a Google Drive share link to a direct embeddable link.
+ * Handles both '/file/d/{ID}/view' and '/open?id={ID}' formats.
+ * @param url The Google Drive share URL.
+ * @returns A direct embeddable URL or the original URL if conversion fails.
+ */
+/**
+ * Converts Google Drive share links into direct embeddable image links.
+ * Supports:
+ *  - https://drive.google.com/file/d/ID/view
+ *  - https://drive.google.com/open?id=ID
+ */
+
+/**
+ * Converts Google Drive share links into direct embeddable image links.
+ * Safe for relative URLs (won’t crash).
+ */
+const convertGoogleDriveUrl = (url: string): string => {
+  if (!url) return url;
+
+  // Only attempt conversion if it looks like a Drive link
+  if (!url.includes("drive.google.com")) {
+    return url;
+  }
+
+  // Match: /file/d/ID/
+  const fileMatch = url.match(/\/file\/d\/([^/]+)/);
+  if (fileMatch?.[1]) {
+    return `https://drive.google.com/uc?export=view&id=${fileMatch[1]}`;
+  }
+
+  // Match: id=ID
+  const idMatch = url.match(/[?&]id=([^&]+)/);
+  if (idMatch?.[1]) {
+    return `https://drive.google.com/uc?export=view&id=${idMatch[1]}`;
+  }
+
+  return url;
+};
+
+/**
+ * Resolves final image URL
+ */
+const getImageUrl = (url: string): string => {
   if (!url) return "";
-  if (url.startsWith("http")) return url;
-  return `https://yeticollege.edu.np${url}`;
+
+  const converted = convertGoogleDriveUrl(url);
+
+  if (converted.startsWith("http")) {
+    return `/api/gallery/image-proxy?url=${encodeURIComponent(converted)}`;
+  }
+
+  return `https://yeticollege.edu.np${converted.startsWith("/") ? "" : "/"}${converted}`;
 };
 
 export default function GalleryPage() {
@@ -60,7 +108,6 @@ export default function GalleryPage() {
   const [editingItem, setEditingItem] = useState<GalleryItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // 2. Initialize navigation hooks
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -75,30 +122,39 @@ export default function GalleryPage() {
 
   const { toast } = useToast();
 
+  // useCallback for resetForm to avoid unnecessary re-creations
+  const resetForm = useCallback(() => {
+    setEditingItem(null);
+    setFormData({ title: "", imageUrl: "", category: "", description: "" });
+    setCategorySelect("");
+  }, []); // Empty dependency array means it's created once
+
+  // Fetch gallery items on component mount
   useEffect(() => {
     fetchGallery();
-  }, []);
+  }, []); // Empty dependency array means it runs once on mount
 
-  // 3. New Effect: Check for ?create param on mount
+  // Effect to handle URL parameter for creating new items
   useEffect(() => {
     if (searchParams.has("create")) {
       setEditingItem(null);
-      resetForm();
+      resetForm(); // Reset form for new creation
       setDialogOpen(true);
     }
-  }, [searchParams]);
+  }, [searchParams, resetForm]); // Add resetForm to dependencies
 
   const fetchGallery = async () => {
+    setLoading(true);
     try {
       const response = await fetch("/api/gallery");
       if (!response.ok) throw new Error("Failed to fetch gallery");
       const data = await response.json();
       setImages(data);
     } catch (error) {
-      console.error("[v0] Error loading gallery:", error);
+      console.error("[GalleryPage] Error loading gallery:", error);
       toast({
         title: "Error",
-        description: "Failed to load gallery items",
+        description: "Failed to load gallery items.",
         variant: "destructive",
       });
     } finally {
@@ -107,20 +163,21 @@ export default function GalleryPage() {
   };
 
   const filteredImages = useMemo(() => {
+    const lowerCaseQuery = searchQuery.toLowerCase();
     return images.filter(
       (img) =>
-        img.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        img.category?.toLowerCase().includes(searchQuery.toLowerCase())
+        img.title.toLowerCase().includes(lowerCaseQuery) ||
+        img.category?.toLowerCase().includes(lowerCaseQuery),
     );
   }, [images, searchQuery]);
 
-  // 4. Update Dialog change handler to manage URL
+  // Handler for dialog open/close state, including URL parameter management
   const handleOpenChange = (open: boolean) => {
     setDialogOpen(open);
     if (!open) {
       resetForm();
+      // If dialog is closed and 'create' param exists, remove it from URL
       if (searchParams.has("create")) {
-        // Remove ?create param when dialog is closed manually
         router.replace(window.location.pathname, { scroll: false });
       }
     }
@@ -129,6 +186,13 @@ export default function GalleryPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
+
+    // Apply Google Drive conversion to the imageUrl before sending to API
+    const processedFormData = {
+      ...formData,
+      imageUrl: getImageUrl(formData.imageUrl), // Ensure the URL is converted/formatted
+    };
+
     try {
       const url = editingItem
         ? `/api/gallery/${editingItem.id}`
@@ -138,33 +202,35 @@ export default function GalleryPage() {
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(processedFormData), // Use processed formData
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.details || "Failed to submit");
+        throw new Error(errorData.details || "Failed to submit gallery item.");
       }
 
       toast({
         title: "Success",
-        description: `Item ${editingItem ? "updated" : "added"} successfully`,
+        description: `Gallery item ${
+          editingItem ? "updated" : "added"
+        } successfully.`,
       });
 
-      setDialogOpen(false);
+      setDialogOpen(false); // Close dialog on success
 
-      // Clear URL param on success
+      // Clear URL param on successful submission if it was a creation flow
       if (searchParams.has("create")) {
         router.replace(window.location.pathname, { scroll: false });
       }
 
-      resetForm();
-      fetchGallery();
+      resetForm(); // Reset form for next use
+      fetchGallery(); // Refresh the list of images
     } catch (error) {
       toast({
         title: "Error",
         description:
-          error instanceof Error ? error.message : "Submission failed",
+          error instanceof Error ? error.message : "Submission failed.",
         variant: "destructive",
       });
     } finally {
@@ -173,8 +239,9 @@ export default function GalleryPage() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this item?")) return;
+    if (!confirm("Are you sure you want to delete this gallery item?")) return;
 
+    // Optimistic UI update: remove item instantly
     const previousImages = [...images];
     setImages(images.filter((img) => img.id !== id));
 
@@ -182,26 +249,21 @@ export default function GalleryPage() {
       const response = await fetch(`/api/gallery/${id}`, {
         method: "DELETE",
       });
-      if (!response.ok) throw new Error("Failed to delete");
+      if (!response.ok) throw new Error("Failed to delete gallery item.");
 
       toast({
         title: "Success",
-        description: "Gallery item deleted successfully",
+        description: "Gallery item deleted successfully.",
       });
     } catch (error) {
+      // Revert UI on error
       setImages(previousImages);
       toast({
         title: "Error",
-        description: "Failed to delete item",
+        description: "Failed to delete item.",
         variant: "destructive",
       });
     }
-  };
-
-  const resetForm = () => {
-    setEditingItem(null);
-    setFormData({ title: "", imageUrl: "", category: "", description: "" });
-    setCategorySelect("");
   };
 
   const openEdit = (item: GalleryItem) => {
@@ -213,7 +275,7 @@ export default function GalleryPage() {
 
     setFormData({
       title: item.title,
-      imageUrl: item.imageUrl,
+      imageUrl: item.imageUrl, // Use original imageUrl for editing
       category: currentCategory,
       description: item.description || "",
     });
@@ -233,16 +295,16 @@ export default function GalleryPage() {
           </p>
         </div>
 
-        {/* 5. Update Dialog to use handleOpenChange */}
+        {/* Dialog for Add/Edit Media */}
         <Dialog open={dialogOpen} onOpenChange={handleOpenChange}>
           <DialogTrigger asChild>
-            <Button size="lg" className="shadow-sm" onClick={() => resetForm()}>
+            <Button size="lg" className="shadow-sm">
               <Plus className="mr-2 h-4 w-4" /> Add Media
             </Button>
           </DialogTrigger>
           <DialogContent
             className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto"
-            onInteractOutside={(e) => e.preventDefault()}
+            onInteractOutside={(e) => e.preventDefault()} // Prevent closing by clicking outside during interaction
           >
             <DialogHeader>
               <DialogTitle>
@@ -264,7 +326,7 @@ export default function GalleryPage() {
                       onChange={(e) =>
                         setFormData({ ...formData, imageUrl: e.target.value })
                       }
-                      placeholder="/images/campus.jpg or https://..."
+                      placeholder="e.g., /images/campus.jpg or a Google Drive share link"
                       required
                     />
                   </div>
@@ -275,12 +337,13 @@ export default function GalleryPage() {
                   {formData.imageUrl ? (
                     <div className="relative aspect-video w-full overflow-hidden rounded-lg border bg-muted">
                       <img
+                        // Use getImageUrl for immediate preview
                         src={getImageUrl(formData.imageUrl)}
                         alt="Preview"
                         className="h-full w-full object-cover"
                         onError={(e) => {
                           (e.target as HTMLImageElement).src =
-                            "/placeholder.svg";
+                            "https://yeticollege.edu.np/placeholder.svg"; // Fallback image
                         }}
                       />
                     </div>
@@ -305,7 +368,7 @@ export default function GalleryPage() {
                       setFormData({ ...formData, title: e.target.value })
                     }
                     required
-                    placeholder="Event Name"
+                    placeholder="e.g., Annual Sports Day"
                   />
                 </div>
 
@@ -323,7 +386,7 @@ export default function GalleryPage() {
                       });
                     }}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    required={categorySelect !== "Custom"}
+                    required={categorySelect !== "Custom"} // Only required if not custom
                   >
                     <option value="">Select a category</option>
                     {PREDEFINED_CATEGORIES.map((cat) => (
@@ -343,7 +406,7 @@ export default function GalleryPage() {
                           setFormData({ ...formData, category: e.target.value })
                         }
                         placeholder="Enter custom category"
-                        required
+                        required // Custom category input is required if "Custom" is selected
                         autoFocus
                       />
                     </div>
@@ -360,7 +423,7 @@ export default function GalleryPage() {
                     onChange={(value) =>
                       setFormData({ ...formData, description: value })
                     }
-                    placeholder="Describe the media item..."
+                    placeholder="Describe the media item, e.g., 'Students participating in the annual sports day...' "
                     className="bg-background rounded-md"
                   />
                 </div>
@@ -400,6 +463,7 @@ export default function GalleryPage() {
 
       {/* Gallery Grid */}
       {loading ? (
+        // Loading skeleton
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {[...Array(8)].map((_, i) => (
             <div key={i} className="space-y-3">
@@ -410,6 +474,7 @@ export default function GalleryPage() {
           ))}
         </div>
       ) : filteredImages.length > 0 ? (
+        // Display filtered images
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredImages.map((image) => (
             <Card
@@ -418,12 +483,16 @@ export default function GalleryPage() {
             >
               <CardContent className="p-0 relative aspect-[4/3] overflow-hidden bg-gray-100">
                 <img
-                  src={getImageUrl(image.imageUrl) || "/placeholder.svg"}
+                  src={
+                    getImageUrl(image.imageUrl) ||
+                    "https://yeticollege.edu.np/placeholder.svg"
+                  } // Use getImageUrl for display
                   alt={image.title}
                   loading="lazy"
                   className="object-cover w-full h-full transition-transform duration-500 group-hover:scale-110"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = "/placeholder.svg";
+                    (e.target as HTMLImageElement).src =
+                      "https://yeticollege.edu.np/placeholder.svg"; // Fallback on error
                   }}
                 />
 
@@ -473,6 +542,7 @@ export default function GalleryPage() {
           ))}
         </div>
       ) : (
+        // No media found state
         <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed rounded-xl bg-gray-50">
           <ImageIcon className="h-12 w-12 text-muted-foreground/50 mb-4" />
           <h3 className="text-lg font-semibold">No media found</h3>
@@ -486,7 +556,7 @@ export default function GalleryPage() {
               variant="link"
               onClick={() => {
                 setDialogOpen(true);
-                resetForm();
+                resetForm(); // Ensure form is reset when clicking "Add your first item"
               }}
               className="mt-2"
             >
