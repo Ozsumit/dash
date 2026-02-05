@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useState, useEffect, useMemo, useCallback } from "react"; // Added useCallback
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Edit, Search, ImageIcon, Loader2 } from "lucide-react";
@@ -20,7 +20,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import dynamic from "next/dynamic";
 
-// Dynamically import ReactQuill
 const ReactQuill = dynamic(() => import("react-quill-new"), {
   ssr: false,
   loading: () => (
@@ -45,38 +44,31 @@ const PREDEFINED_CATEGORIES = [
   "Ceremony",
 ];
 
-/**
- * Converts a Google Drive share link to a direct embeddable link.
- * Handles both '/file/d/{ID}/view' and '/open?id={ID}' formats.
- * @param url The Google Drive share URL.
- * @returns A direct embeddable URL or the original URL if conversion fails.
- */
-/**
- * Converts Google Drive share links into direct embeddable image links.
- * Supports:
- *  - https://drive.google.com/file/d/ID/view
- *  - https://drive.google.com/open?id=ID
- */
+const DOMAIN_PREFIX = "https://yeticollege.edu.np";
 
 /**
- * Converts Google Drive share links into direct embeddable image links.
- * Safe for relative URLs (won’t crash).
+ * Standardizes URLs.
+ * Adds college prefix to local files and formats Google Drive links.
  */
 const convertGoogleDriveUrl = (url: string): string => {
   if (!url) return url;
 
-  // Only attempt conversion if it looks like a Drive link
-  if (!url.includes("drive.google.com")) {
-    return url;
+  // 1. If it's a local file, add the college prefix
+  if (url.startsWith("/")) {
+    return `${DOMAIN_PREFIX}${url}`;
   }
 
-  // Match: /file/d/ID/
+  // 2. If it's not a google drive link, do nothing.
+  if (!url.includes("drive.google.com")) return url;
+
+  // 3. Handle Google Drive formats
+  if (url.includes("drive.google.com/uc?export=view&id=")) return url;
+
   const fileMatch = url.match(/\/file\/d\/([^/]+)/);
   if (fileMatch?.[1]) {
     return `https://drive.google.com/uc?export=view&id=${fileMatch[1]}`;
   }
 
-  // Match: id=ID
   const idMatch = url.match(/[?&]id=([^&]+)/);
   if (idMatch?.[1]) {
     return `https://drive.google.com/uc?export=view&id=${idMatch[1]}`;
@@ -86,18 +78,32 @@ const convertGoogleDriveUrl = (url: string): string => {
 };
 
 /**
- * Resolves final image URL
+ * Determines the src attribute for the <img> tag.
+ * - Local files (with prefix): Returns as-is.
+ * - External files: Wraps in proxy to avoid CORS issues.
  */
 const getImageUrl = (url: string): string => {
   if (!url) return "";
 
+  // 1. If it starts with / add prefix and return
+  if (url.startsWith("/")) {
+    return `${DOMAIN_PREFIX}${url}`;
+  }
+
+  // 2. Convert Drive links
   const converted = convertGoogleDriveUrl(url);
 
+  // 3. If it is already a college domain link, don't proxy it
+  if (converted.startsWith(DOMAIN_PREFIX)) {
+    return converted;
+  }
+
+  // 4. If it is an external link (Drive, etc), wrap in proxy
   if (converted.startsWith("http")) {
     return `/api/gallery/image-proxy?url=${encodeURIComponent(converted)}`;
   }
 
-  return `https://yeticollege.edu.np${converted.startsWith("/") ? "" : "/"}${converted}`;
+  return converted;
 };
 
 export default function GalleryPage() {
@@ -122,26 +128,23 @@ export default function GalleryPage() {
 
   const { toast } = useToast();
 
-  // useCallback for resetForm to avoid unnecessary re-creations
   const resetForm = useCallback(() => {
     setEditingItem(null);
     setFormData({ title: "", imageUrl: "", category: "", description: "" });
     setCategorySelect("");
-  }, []); // Empty dependency array means it's created once
+  }, []);
 
-  // Fetch gallery items on component mount
   useEffect(() => {
     fetchGallery();
-  }, []); // Empty dependency array means it runs once on mount
+  }, []);
 
-  // Effect to handle URL parameter for creating new items
   useEffect(() => {
     if (searchParams.has("create")) {
       setEditingItem(null);
-      resetForm(); // Reset form for new creation
+      resetForm();
       setDialogOpen(true);
     }
-  }, [searchParams, resetForm]); // Add resetForm to dependencies
+  }, [searchParams, resetForm]);
 
   const fetchGallery = async () => {
     setLoading(true);
@@ -171,12 +174,10 @@ export default function GalleryPage() {
     );
   }, [images, searchQuery]);
 
-  // Handler for dialog open/close state, including URL parameter management
   const handleOpenChange = (open: boolean) => {
     setDialogOpen(open);
     if (!open) {
       resetForm();
-      // If dialog is closed and 'create' param exists, remove it from URL
       if (searchParams.has("create")) {
         router.replace(window.location.pathname, { scroll: false });
       }
@@ -187,10 +188,11 @@ export default function GalleryPage() {
     e.preventDefault();
     setSubmitting(true);
 
-    // Apply Google Drive conversion to the imageUrl before sending to API
+    const cleanUrl = convertGoogleDriveUrl(formData.imageUrl);
+
     const processedFormData = {
       ...formData,
-      imageUrl: getImageUrl(formData.imageUrl), // Ensure the URL is converted/formatted
+      imageUrl: cleanUrl,
     };
 
     try {
@@ -202,7 +204,7 @@ export default function GalleryPage() {
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(processedFormData), // Use processed formData
+        body: JSON.stringify(processedFormData),
       });
 
       if (!response.ok) {
@@ -217,15 +219,14 @@ export default function GalleryPage() {
         } successfully.`,
       });
 
-      setDialogOpen(false); // Close dialog on success
+      setDialogOpen(false);
 
-      // Clear URL param on successful submission if it was a creation flow
       if (searchParams.has("create")) {
         router.replace(window.location.pathname, { scroll: false });
       }
 
-      resetForm(); // Reset form for next use
-      fetchGallery(); // Refresh the list of images
+      resetForm();
+      fetchGallery();
     } catch (error) {
       toast({
         title: "Error",
@@ -241,7 +242,6 @@ export default function GalleryPage() {
   const handleDelete = async (id: number) => {
     if (!confirm("Are you sure you want to delete this gallery item?")) return;
 
-    // Optimistic UI update: remove item instantly
     const previousImages = [...images];
     setImages(images.filter((img) => img.id !== id));
 
@@ -256,7 +256,6 @@ export default function GalleryPage() {
         description: "Gallery item deleted successfully.",
       });
     } catch (error) {
-      // Revert UI on error
       setImages(previousImages);
       toast({
         title: "Error",
@@ -275,7 +274,7 @@ export default function GalleryPage() {
 
     setFormData({
       title: item.title,
-      imageUrl: item.imageUrl, // Use original imageUrl for editing
+      imageUrl: item.imageUrl,
       category: currentCategory,
       description: item.description || "",
     });
@@ -284,7 +283,6 @@ export default function GalleryPage() {
 
   return (
     <div className="space-y-8 p-6 max-w-7xl mx-auto">
-      {/* Header Section */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-gray-900">
@@ -295,7 +293,6 @@ export default function GalleryPage() {
           </p>
         </div>
 
-        {/* Dialog for Add/Edit Media */}
         <Dialog open={dialogOpen} onOpenChange={handleOpenChange}>
           <DialogTrigger asChild>
             <Button size="lg" className="shadow-sm">
@@ -304,7 +301,7 @@ export default function GalleryPage() {
           </DialogTrigger>
           <DialogContent
             className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto"
-            onInteractOutside={(e) => e.preventDefault()} // Prevent closing by clicking outside during interaction
+            onInteractOutside={(e) => e.preventDefault()}
           >
             <DialogHeader>
               <DialogTitle>
@@ -326,24 +323,22 @@ export default function GalleryPage() {
                       onChange={(e) =>
                         setFormData({ ...formData, imageUrl: e.target.value })
                       }
-                      placeholder="e.g., /images/campus.jpg or a Google Drive share link"
+                      placeholder="e.g., /images/campus.jpg or a Google Drive link"
                       required
                     />
                   </div>
                 </div>
 
-                {/* Image Preview Area */}
                 <div className="md:col-span-2">
                   {formData.imageUrl ? (
                     <div className="relative aspect-video w-full overflow-hidden rounded-lg border bg-muted">
                       <img
-                        // Use getImageUrl for immediate preview
                         src={getImageUrl(formData.imageUrl)}
                         alt="Preview"
                         className="h-full w-full object-cover"
                         onError={(e) => {
                           (e.target as HTMLImageElement).src =
-                            "https://yeticollege.edu.np/placeholder.svg"; // Fallback image
+                            "/placeholder.svg";
                         }}
                       />
                     </div>
@@ -386,7 +381,7 @@ export default function GalleryPage() {
                       });
                     }}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    required={categorySelect !== "Custom"} // Only required if not custom
+                    required={categorySelect !== "Custom"}
                   >
                     <option value="">Select a category</option>
                     {PREDEFINED_CATEGORIES.map((cat) => (
@@ -406,7 +401,7 @@ export default function GalleryPage() {
                           setFormData({ ...formData, category: e.target.value })
                         }
                         placeholder="Enter custom category"
-                        required // Custom category input is required if "Custom" is selected
+                        required
                         autoFocus
                       />
                     </div>
@@ -423,7 +418,7 @@ export default function GalleryPage() {
                     onChange={(value) =>
                       setFormData({ ...formData, description: value })
                     }
-                    placeholder="Describe the media item, e.g., 'Students participating in the annual sports day...' "
+                    placeholder="Describe the media item..."
                     className="bg-background rounded-md"
                   />
                 </div>
@@ -450,7 +445,6 @@ export default function GalleryPage() {
         </Dialog>
       </div>
 
-      {/* Toolbar / Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -461,9 +455,7 @@ export default function GalleryPage() {
         />
       </div>
 
-      {/* Gallery Grid */}
       {loading ? (
-        // Loading skeleton
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {[...Array(8)].map((_, i) => (
             <div key={i} className="space-y-3">
@@ -474,7 +466,6 @@ export default function GalleryPage() {
           ))}
         </div>
       ) : filteredImages.length > 0 ? (
-        // Display filtered images
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredImages.map((image) => (
             <Card
@@ -483,16 +474,12 @@ export default function GalleryPage() {
             >
               <CardContent className="p-0 relative aspect-[4/3] overflow-hidden bg-gray-100">
                 <img
-                  src={
-                    getImageUrl(image.imageUrl) ||
-                    "https://yeticollege.edu.np/placeholder.svg"
-                  } // Use getImageUrl for display
+                  src={getImageUrl(image.imageUrl) || "/placeholder.svg"}
                   alt={image.title}
                   loading="lazy"
                   className="object-cover w-full h-full transition-transform duration-500 group-hover:scale-110"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src =
-                      "https://yeticollege.edu.np/placeholder.svg"; // Fallback on error
+                    (e.target as HTMLImageElement).src = "/placeholder.svg";
                   }}
                 />
 
@@ -512,7 +499,6 @@ export default function GalleryPage() {
                     onClick={() => openEdit(image)}
                   >
                     <Edit className="h-4 w-4" />
-                    <span className="sr-only">Edit</span>
                   </Button>
                   <Button
                     size="icon"
@@ -521,7 +507,6 @@ export default function GalleryPage() {
                     onClick={() => handleDelete(image.id)}
                   >
                     <Trash2 className="h-4 w-4" />
-                    <span className="sr-only">Delete</span>
                   </Button>
                 </div>
               </CardContent>
@@ -542,7 +527,6 @@ export default function GalleryPage() {
           ))}
         </div>
       ) : (
-        // No media found state
         <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed rounded-xl bg-gray-50">
           <ImageIcon className="h-12 w-12 text-muted-foreground/50 mb-4" />
           <h3 className="text-lg font-semibold">No media found</h3>
@@ -556,7 +540,7 @@ export default function GalleryPage() {
               variant="link"
               onClick={() => {
                 setDialogOpen(true);
-                resetForm(); // Ensure form is reset when clicking "Add your first item"
+                resetForm();
               }}
               className="mt-2"
             >
